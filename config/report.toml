@@ -1,0 +1,18 @@
+[retailer]
+name = "Flisekompaniet"
+domain = "flisekompaniet.no"
+scraper_key = "flisekompaniet_no"
+
+[monitoring]
+competitor_scraper_key = "prisradar_no"
+in_stock_value = "in_stock"
+currency = "NOK"
+price_leader_tolerance = 0.01
+price_alert_threshold = 0.05
+critical_price_alert_threshold = 0.15
+underpricing_threshold = -0.05
+
+[report]
+title = "Flisekompaniet: konkurranseinnsikt som kan gjøres handlingsbar"
+pilot_days = 30
+pilot_category_count = 5

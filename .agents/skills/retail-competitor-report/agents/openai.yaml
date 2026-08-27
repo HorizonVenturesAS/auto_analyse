@@ -1,0 +1,8 @@
+interface:
+  display_name: "Retail Konkurrentrapport"
+  short_description: "Bygg fast konkurrentrapport fra nye rådata"
+  brand_color: "#264A96"
+  default_prompt: "Use $retail-competitor-report to analyze the newest raw data file and create the standard Excel insight report."
+
+policy:
+  allow_implicit_invocation: true

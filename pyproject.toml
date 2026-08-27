@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-analyse"
+version = "0.1.0"
+description = "Reproduserbar pris- og tilgjengelighetsanalyse for retail crawl-data"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=2.0,<3",
+  "openpyxl>=3.1,<4",
+  "pandas>=2.2,<4",
+]
+
+[project.scripts]
+auto-analyse = "auto_analyse.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
