@@ -6,9 +6,48 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+node_modules/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.claude/settings.local.json
+CLAUDE.local.md
 
-# New client files and generated reports stay local by default.
+# Private inputs, session notes and customer configuration.
+data/*
+!data/inbox/
 data/inbox/*
 !data/inbox/.gitkeep
+!data/inbox/brands/
+data/inbox/brands/*
+!data/inbox/brands/.gitkeep
 outputs/*
 !outputs/.gitkeep
+
+# Data/report artifacts are private regardless of where they are dropped.
+*.csv
+*.csv.gz
+*.tsv
+*.xlsx
+*.xls
+*.xlsm
+*.zip
+*.sqlite
+*.sqlite-*
+*.db
+*.json
+*.jsonl
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.log
+
+# Only the reproducible synthetic fixtures belong in examples.
+examples/*
+!examples/demo/
+examples/demo/*
+!examples/demo/retail.csv
+!examples/demo/brands.csv

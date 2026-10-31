@@ -1,72 +1,186 @@
 # Auto Analyse
 
-Dette repoet lager den faste pris- og tilgjengelighetsrapporten for Flisekompaniet fra et nytt crawl-uttrekk. Beregninger, kolonner, terskler og Excel-layout er versjonert, slik at samme type rådata gir samme rapportstruktur uten en lang prompt.
+Auto Analyse lager Excel-rapporter om priser og tilgjengelighet fra lokale råfiler.
+Prosjektet er laget for å brukes sammen med en AI-agent i **Codex eller Claude Code**.
+Du kan også kjøre alle rapportene direkte fra terminalen.
 
-## Kom raskt i gang
+**Dette repoet henter ikke data fra nettet.** Innsamling fra Prisradar skjer i det separate
+prosjektet `prisjakt-catalogue`. Her valideres og analyseres uttrekket, og rapporten bygges.
+Se [innsamlingsveiledningen](docs/collection.md) når du vil hente nye data.
 
-```powershell
+Alle data som følger med denne arbeidsversjonen er **syntetiske**. Produkter, GTIN-er,
+leverandører, butikker og priser i demoene er oppdiktet. Adressene bruker `.example`.
+Demoene trenger verken Prisradar, innlogging eller API-nøkkel.
+
+## Velg riktig rapport
+
+| Rapport | Når bruker du den? | Kommando |
+|---|---|---|
+| Retail | Én butikks priser og lager sammenlignes med konkurrentene | `python -m auto_analyse` |
+| Brand | En leverandørs merker og produkter sammenlignes på tvers av butikker | `python -m auto_analyse.brand` |
+
+Retail gir én rapport. Brand gir én rapport per leverandør i råfilen.
+Rapportene er ferdig beregnede snapshots. Kjør programmet igjen ved nye data;
+manuell redigering av Excel beregner ikke analysen på nytt.
+
+## Start i Codex eller Claude
+
+1. Klon eller last ned prosjektet og åpne **prosjektmappen** i en lokal kodeøkt.
+2. I Codex: velg mappen som prosjekt. Agentinstruksjonene ligger i [AGENTS.md](AGENTS.md).
+3. I Claude-appen: bruk **Claude Code med tilgang til den lokale mappen og terminalen**.
+   [CLAUDE.md](CLAUDE.md) peker til de samme prosjektinstruksjonene.
+4. Lim inn startprompten nedenfor. Agenten kan gjøre installasjonen og kjøre demoene.
+
+En vanlig chat med bare opplastede filer gir ikke nødvendigvis tilgang til prosjektets
+terminal. Velg en lokal kodeøkt. Rapportmotoren krever ingen modell-API-nøkkel;
+tilgang til AI-appen ordnes separat.
+
+Offisiell veiledning: [Codex-prosjektinstruksjoner](https://learn.chatgpt.com/docs/agent-configuration/agents-md),
+[Claude Code på desktop](https://code.claude.com/docs/en/desktop) og
+[CLAUDE.md](https://code.claude.com/docs/en/memory).
+
+### Første gangs bruk
+
+> Les AGENTS.md og README.md. Sett opp prosjektets virtuelle Python-miljø med de låste
+> avhengighetene. Kjør begge syntetiske demoene, kontroller KPI-er, faner og kolonnenotater,
+> og vis meg rapportene. Forklar forskjellen mellom retail og brand. Bruk kun demoene.
+
+### Lag rapport fra egen råfil
+
+> Les AGENTS.md og docs/data-formats.md. Lag brandrapport fra
+> data/inbox/brands/catalogue.csv. Bruk config/brand.toml. Bevar råfilen, kontroller
+> datagrunnlaget og oppgi rapportlenker, observasjonsperiode og viktige begrensninger.
+
+For en butikkrapport kan du bruke:
+
+> Lag retailrapport fra data/inbox/uttrekk.csv med konfigurasjonen
+> data/min-butikk.toml. Kontroller at butikk, valuta og produktkoblinger er riktige.
+> Skriv rapporten til outputs/min-butikk.xlsx og kontroller resultatet.
+
+### Hent nye data og lag rapport
+
+> Les AGENTS.md og docs/collection.md. Bruk det separate prisjakt-catalogue-prosjektet
+> til å hente data fra Prisradar.no for leverandøren [domene] og merkene [merkeliste].
+> Innsamlerprosjektet ligger i [mappe]. Bruk et eget analyseområde, kontroller
+> merkeidentitet, varianter, tilbud, dekning og observasjonstid. Eksporter catalogue.csv,
+> legg en urørt kopi i dette prosjektets data/inbox/brands/ og lag brandrapporten her.
+> Oppgi uavklarte forhold. Ikke publiser data eller rapporter.
+
+Erstatt feltene i hakeparenteser før du sender prompten. Innsamleren må være tilgjengelig
+separat; den installeres ikke sammen med Auto Analyse.
+
+### Fortsett i en ny økt
+
+> Les AGENTS.md og eventuelle lokale notater i data/session.md. Kontroller faktiske
+> filer og sist fullførte steg før du fortsetter. Fortsett med [oppgaven].
+> Bruk eksisterende råfil med mindre jeg har bedt om nye observasjoner.
+
+For å avslutte en arbeidsøkt med nyttig overlevering:
+
+> Oppsummer valgt rapporttype, råfil, konfigurasjon, utførte kontroller, outputfiler og
+> neste steg i data/session.md. Skill mellom fullført arbeid og uavklarte forhold.
+> Ikke kopier rådata eller påstå at gamle priser er oppdatert.
+
+## Installasjon fra terminal
+
+Du trenger **Git og Python 3.11 eller nyere**. Excel er valgfritt for å åpne resultatet.
+Python 3.12 er et godt utgangspunkt; CI kontrollerer 3.11 og 3.12.
+Kommandoene under kjøres fra prosjektmappen.
+
+Klon repoet og gå til prosjektmappen:
+
+```sh
 git clone https://github.com/HorizonVenturesAS/auto_analyse.git
 cd auto_analyse
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e .
 ```
 
-Legg den nye `.csv`, `.csv.gz`, `.zip` eller `.xlsx`-filen i `data/inbox/`, og kjør:
+Repoet er privat; du må ha fått tilgang fra eieren. Ved publisering av endringer,
+følg [delingskontrollen](docs/development.md#før-deling).
+
+### Windows / PowerShell
 
 ```powershell
-auto-analyse
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e . -c constraints.txt
+.\.venv\Scripts\python.exe -m auto_analyse --demo
+.\.venv\Scripts\python.exe -m auto_analyse.brand --demo
 ```
 
-Programmet velger den nyeste råfilen og skriver rapporten og et JSON-sammendrag til `outputs/`. Du kan også oppgi fil og mål eksplisitt:
+Hvis du har Python 3.11, bruk `py -3.11` i første linje.
+Miljøet trenger ikke aktiveres; kommandoene fungerer også når PowerShell blokkerer aktiveringsskript.
 
-```powershell
-auto-analyse data/inbox/nytt_uttrekk.csv -o outputs/innsiktsrapport.xlsx
+### macOS / Linux
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -e . -c constraints.txt
+.venv/bin/python -m auto_analyse --demo
+.venv/bin/python -m auto_analyse.brand --demo
 ```
 
-På macOS/Linux brukes samme kommandoer, men miljøet aktiveres med `source .venv/bin/activate`.
+Resten av dokumentasjonen bruker `python` som kortnavn for Python i `.venv`.
+Bruk den fulle plattformstien over, eller aktiver miljøet.
 
-## Bruk med Codex
+## Demoer og egne data
 
-Åpne repoet og skriv for eksempel:
+- Retaildemo: `examples/demo/retail.csv`, 32 observasjoner, 8 produkter og 2 dager.
+- Branddemo: `examples/demo/brands.csv`, 11 observasjoner, 6 produkter og 2 leverandører.
+- Retaildemoens rapport: `outputs/demo/retail.xlsx`.
+- Branddemoens rapporter: `outputs/demo/brands/`.
+- Demoene kan gjenskapes med `python scripts/generate_demo_data.py`.
 
-> Analyser den nyeste råfilen og lag standardrapporten.
+Forventede KPI-er og forklaring på hver demosituasjon står i [dataformatene](docs/data-formats.md).
+Demoer og rapporter er tydelig merket DEMO. Gjentakelse krever `--overwrite`, eller en ny målmappe.
 
-`AGENTS.md` og repo-skillen `$retail-competitor-report` forteller Codex hvilken kommando, rapportkontrakt og kontrollrutine som skal brukes. Du kan også starte eksplisitt med:
+Legg egne retailfiler direkte i `data/inbox/`, brandfiler i `data/inbox/brands/`.
+Kopier en passende TOML-konfigurasjon til `data/` for private kundetilpasninger.
 
-> Bruk $retail-competitor-report på filen i data/inbox.
+```sh
+python -m auto_analyse data/inbox/uttrekk.csv --config data/min-butikk.toml -o outputs/min-butikk.xlsx
+python -m auto_analyse.brand data/inbox/brands/catalogue.csv --config config/brand.toml
+```
 
-## Hva rapporten inneholder
+Støttet input: CSV, CSV.GZ, ZIP med én CSV og XLSX. Excel må ha én entydig rådatafane
+med nødvendige kolonnenavn i første rad. `.xls` må først lagres som `.xlsx`.
+CSV bruker komma som separator og punktum som desimaltegn.
 
-Rapporten har alltid disse fanene:
+Uten inputargument velger retail nyeste støttede fil i innboksen, uavhengig av demofilens dato.
+Bare når innboksen er tom brukes den merkede retaildemoen. Brand velger bare fra sin egen
+innboks og gir feilmelding hvis den er tom. `--demo` velger demo eksplisitt.
 
-1. `Kategorier`
-2. `Konkurrenter`
-3. `Prisvarsler`
-4. `Tilgjengelighetsrisiko`
-5. `Marginvakt`
-6. `Analyse & oppsummering`
-7. `Kolonneforklaringer`
+Eksisterende rapporter og sidefiler beskyttes mot overskriving. Bruk `--overwrite` når du
+bevisst vil erstatte dem. Råfilen kan aldri være en outputfil, heller ikke med denne bryteren.
+En eksplisitt `--config` som ikke finnes gir feil.
 
-Det opprettes ingen grafer, og fanene `Utvikling`, `Datakvalitet` og en separat `Måltall`-fane inngår ikke. Måltallene ligger i `Analyse & oppsummering`.
+## Resultatet
 
-## Definisjoner og konfigurasjon
+Retail har syv faner: Kategorier, Konkurrenter, Prisvarsler, Tilgjengelighetsrisiko,
+Marginvakt, Analyse & oppsummering og Kolonneforklaringer.
 
-Standardene ligger i `config/report.toml`. Der kan målaktør, scraper-nøkler, lagerstatus og terskler endres. Beregningskontrakten og obligatoriske råkolonner er dokumentert i `.agents/skills/retail-competitor-report/references/report-contract.md`.
+Brand har åtte faner: Brands, Kategorier, Nettbutikker, Prisgap, Tilgjengelighet,
+Kampanjer, Analyse & oppsummering og Kolonneforklaringer.
 
-Viktige standarder:
+Ved siden av Excel ligger `.json` med KPI-er og `.notes.json` med kolonnenotater.
+Brand skriver også `.observations.jsonl` med kontrollårsaker per observasjon.
+Alle disse filene kan inneholde kundedata og skal bli under `outputs/`.
 
-- Prisleder: egen pris er innenfor 1 % av billigste tilgjengelige konkurrent.
-- Prisvarsel: egen pris er mer enn 5 % over billigste tilgjengelige konkurrent.
-- Kritisk prisvarsel: egen pris er mer enn 15 % over billigste tilgjengelige konkurrent.
-- Marginvakt: egen pris er mer enn 5 % under alle tilgjengelige konkurrenter.
-- Pris sammenlignes bare når både Flisekompaniet og minst én konkurrent er `in_stock`.
+Pris- og lagerdata beskriver det observerte utvalget. De dokumenterer ikke salg, margin,
+markedsandel eller komplett sortiment. Brandrapporten bekrefter ikke brandeierskap.
+Se [brandkontrakten](docs/brand-report-contract.md) og
+[retailkontrakten](.agents/skills/retail-competitor-report/references/report-contract.md).
 
-## Eksempler og kvalitetssikring
+## Hvis noe feiler
 
-- `examples/raw/` inneholder det komplette sju-dagersuttrekket komprimert som ZIP.
-- `examples/reference/` inneholder den godkjente reviderte rapporten som visuell referanse.
-- `python -m unittest discover -s tests -v` kjører en full ende-til-ende-kontroll mot kjente KPI-er og rapportstrukturen.
-- GitHub Actions kjører samme kontroll på alle pushes og pull requests.
+| Melding / situasjon | Løsning |
+|---|---|
+| Python eller `auto_analyse` finnes ikke | Bruk Python fra `.venv`, og kjør installasjonen over. |
+| Ingen brandråfil | Legg filen i riktig mappe, oppgi banen eller bruk `--demo`. |
+| Manglende kolonner | Sammenlign med [datakravene](docs/data-formats.md). Ikke gjett koblinger eller flagg. |
+| Ingen rader for målbutikk | Kontroller domene og scraper-nøkkel i konfigurasjonen. |
+| Flere Excel-faner kvalifiserer | Lag en separat eksport med én rådatafane. Bevar originalen. |
+| Konfigurasjonsfil finnes ikke | Kontroller filbane og at terminalen står i prosjektmappen. |
+| Filen finnes allerede | Velg nytt outputnavn eller bruk `--overwrite`. |
+| Permission denied / låst Excel-fil | Lukk rapporten i Excel og prøv igjen. |
+| «Ikke beregnbart» | Les kontrollårsaker og datagrunnlag. Det betyr ikke null. |
 
-Rådata i `data/inbox/` og genererte rapporter i `outputs/` ignoreres av Git som standard. Dermed blir nye kundedata ikke lastet opp ved et uhell.
+For kodeendringer, tester og trygg deling: [utviklerveiledningen](docs/development.md).

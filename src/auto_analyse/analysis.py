@@ -57,8 +57,22 @@ def _read_source(path: Path) -> pd.DataFrame:
     dtype = {"product_id": "string", "gtin": "string"}
     if suffixes.endswith((".csv", ".csv.gz", ".zip")):
         return pd.read_csv(path, low_memory=False, dtype=dtype, compression="infer")
-    if suffixes.endswith((".xlsx", ".xls")):
-        return pd.read_excel(path, dtype=dtype)
+    if suffixes.endswith(".xlsx"):
+        with pd.ExcelFile(path) as workbook:
+            matches = [
+                name
+                for name in workbook.sheet_names
+                if REQUIRED_COLUMNS.issubset(pd.read_excel(workbook, sheet_name=name, nrows=0).columns)
+            ]
+            if len(matches) > 1:
+                raise ValueError(
+                    "Flere Excel-faner har alle obligatoriske råkolonner: "
+                    + ", ".join(matches)
+                    + ". Oppgi en råfil med én entydig datafane."
+                )
+            # Preserve the missing-column diagnostic for incompatible workbooks.
+            sheet = matches[0] if matches else workbook.sheet_names[0]
+            return pd.read_excel(workbook, sheet_name=sheet, dtype=dtype)
     raise ValueError(f"Ustøttet filtype: {path.name}. Bruk CSV, CSV.GZ, ZIP eller XLSX.")
 
 
@@ -98,12 +112,14 @@ def analyze_file(
         "retailer_product_reference",
     ]
     for column in text_columns:
-        df[column] = df[column].fillna("").astype(str).str.strip()
+        df[column] = df[column].astype("string").fillna("").astype(str).str.strip()
     df["retailer_domain_norm"] = _normalize_domain(df["retailer_domain"])
     df["price"] = pd.to_numeric(df["price"], errors="coerce")
 
     retailer = config.retailer
     monitoring = config.monitoring
+    if not df["currency"].eq(monitoring.currency).all():
+        raise ValueError(f"Råfilen må bare inneholde valuta {monitoring.currency}; tom eller annen valuta må avklares før analyse.")
     df["is_target"] = df["retailer_domain_norm"].eq(retailer.domain.lower()) | df[
         "scraper_key"
     ].eq(retailer.scraper_key)

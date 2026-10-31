@@ -1,0 +1,10 @@
+# Kjente versjoner for reproducerbar lokal installasjon og CI.
+# Installer: python -m pip install -e . -c constraints.txt
+numpy==2.3.5; python_version < "3.12"
+numpy==2.5.2; python_version >= "3.12"
+pandas==3.0.5
+openpyxl==3.1.5
+et-xmlfile==2.0.0
+python-dateutil==2.9.0.post0
+six==1.17.0
+tzdata==2026.3

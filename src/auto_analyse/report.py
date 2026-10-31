@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime
 import math
+import re
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from openpyxl import Workbook
+from openpyxl.comments import Comment
 from openpyxl.formatting.rule import ColorScaleRule, DataBarRule, FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -78,7 +80,7 @@ ACTION_HEADERS = {
 CATEGORY_DEFINITIONS = {
     "Produktkategori": "Kategorien produktet er gruppert i (catalogue_category).",
     "Produkter": "Antall unike Flisekompaniet-produkter i siste snapshot.",
-    "Matchede produkter": "Produkter med minst én konkurrentobservasjon på samme produkt-ID/GTIN.",
+    "Matchede produkter": "Produkter med minst én konkurrentobservasjon på samme produkt-ID. Koblingen må være gjort før import.",
     "Matchgrad": "Matchede produkter delt på alle produkter i kategorien.",
     "Sammenlignbare in-stock": "Produkter der både Flisekompaniet og minst én konkurrent er registrert in_stock.",
     "Egen lagerandel": "Andel av Flisekompaniets produkter som er registrert in_stock.",
@@ -103,7 +105,7 @@ COMPETITOR_DEFINITIONS = {
 
 ACTION_DEFINITIONS = {
     "Produkt-ID": "Flisekompaniets interne produkt-ID.",
-    "GTIN": "Global Trade Item Number brukt til produktmatching.",
+    "GTIN": "Global Trade Item Number fra kilden. Rapporten kobler rader på produkt-ID, ikke automatisk på GTIN.",
     "Merke": "Produktets merke.",
     "Produkt": "Produktnavn hos Flisekompaniet.",
     "Kategori": "Produktets catalogue_category.",
@@ -117,6 +119,69 @@ ACTION_DEFINITIONS = {
     "Flisekompaniet-URL": "Direktelenke til produktet hos Flisekompaniet.",
     "Konkurrent-URL": "Direktelenke til billigste tilgjengelige konkurrent.",
 }
+
+
+def _report_text(text: str, config: AppConfig) -> str:
+    """Format report-owned labels, never rewrite raw product names or URLs."""
+    m = config.monitoring
+    pct = lambda value: f"{100 * value:g}".replace(".", ",")
+    replacements = {
+        "Flisekompaniet": config.retailer.name,
+        "NOK": m.currency,
+        "in_stock": m.in_stock_value,
+        "5 % under": f"{pct(abs(m.underpricing_threshold))} % under",
+        "5/15 %": f"{pct(m.price_alert_threshold)}/{pct(m.critical_price_alert_threshold)} %",
+        "15 %": f"{pct(m.critical_price_alert_threshold)} %",
+        "5 %": f"{pct(m.price_alert_threshold)} %",
+        "1 %": f"{pct(m.price_leader_tolerance)} %",
+    }
+    return re.sub("|".join(re.escape(key) for key in replacements), lambda match: replacements[match[0]], text)
+
+
+def _labels(mapping: dict[str, str], config: AppConfig) -> dict[str, str]:
+    return {_report_text(key, config): _report_text(value, config) for key, value in mapping.items()}
+
+
+def _headers(mapping: dict[str, str], config: AppConfig) -> dict[str, str]:
+    return {key: _report_text(value, config) for key, value in mapping.items()}
+
+
+def header_note_specs(config: AppConfig | None = None) -> list[dict[str, str]]:
+    """Shared Excel/Google Sheets notes, bound to exact header labels."""
+    specs = []
+    for sheet, definitions in [
+        ("Kategorier", CATEGORY_DEFINITIONS),
+        ("Konkurrenter", COMPETITOR_DEFINITIONS),
+        ("Prisvarsler", ACTION_DEFINITIONS),
+        ("Tilgjengelighetsrisiko", ACTION_DEFINITIONS),
+        ("Marginvakt", ACTION_DEFINITIONS),
+        ("Kolonneforklaringer", {
+            "Ark": "Rapportfanen kolonnen tilhører.",
+            "Kolonne": "Kolonneoverskriften slik den vises i den aktuelle rapportfanen.",
+            "Betyr": "Forklaring av kolonnens innhold eller beregningsmåte.",
+        }),
+    ]:
+        for column, (header, note) in enumerate(definitions.items(), start=1):
+            specs.append({"sheet": sheet, "cell": f"{get_column_letter(column)}1", "header": header, "note": note})
+    for cell, header, note in [
+        ("A45", "Måltall", "Navnet på nøkkeltallet eller opplysningen som oppsummeres."),
+        ("D45", "Verdi", "Beregnet verdi for måltallet, eller oppgitt periode og kilde."),
+        ("F45", "Definisjon / kilde", "Beregningsgrunnlag, avgrensning eller kilde for måltallet."),
+    ]:
+        specs.append({"sheet": "Analyse & oppsummering", "cell": cell, "header": header, "note": note})
+    config = config or AppConfig()
+    return [{**spec, "header": _report_text(spec["header"], config), "note": _report_text(spec["note"], config)} for spec in specs]
+
+
+def add_header_notes(wb: Workbook, config: AppConfig) -> None:
+    """Add legacy Excel notes without changing values or formatting."""
+    for spec in header_note_specs(config):
+        cell = wb[spec["sheet"]][spec["cell"]]
+        if cell.value != spec["header"]:
+            raise ValueError(f"Uventet kolonneoverskrift: {spec['sheet']}!{spec['cell']}")
+        cell.comment = Comment(spec["note"], "Auto Analyse")
+        cell.comment.width = 360
+        cell.comment.height = 100
 
 
 def _value(value: Any) -> Any:
@@ -173,6 +238,8 @@ def _write_dataframe(ws, frame: pd.DataFrame, headers: dict[str, str]) -> int:
     for row_index, row in enumerate(frame[columns].itertuples(index=False, name=None), start=2):
         for column_index, raw in enumerate(row, start=1):
             cell = ws.cell(row_index, column_index, _value(raw))
+            if isinstance(raw, str):
+                cell.data_type = "s"
             cell.font = Font(name=FONT, size=10)
             cell.alignment = Alignment(vertical="top", wrap_text=False)
             cell.border = Border(bottom=Side(style="hair", color="E5E7EB"))
@@ -225,9 +292,9 @@ def _add_definition_panel(
         ws.row_dimensions[row].height = 30
 
 
-def _prepare_category_sheet(wb: Workbook, result: AnalysisResult) -> None:
+def _prepare_category_sheet(wb: Workbook, result: AnalysisResult, config: AppConfig) -> None:
     ws = wb.create_sheet("Kategorier")
-    last_row = _write_dataframe(ws, result.category_position, CATEGORY_HEADERS)
+    last_row = _write_dataframe(ws, result.category_position, _headers(CATEGORY_HEADERS, config))
     _add_table(ws, "CategoryPositionTable", last_row, len(CATEGORY_HEADERS))
     widths = [30, 13, 16, 12, 18, 15, 19, 15, 20, 21, 19, 13, 20]
     for column, width in enumerate(widths, start=1):
@@ -253,17 +320,17 @@ def _prepare_category_sheet(wb: Workbook, result: AnalysisResult) -> None:
             f"M2:M{last_row}", DataBarRule(start_type="min", end_type="max", color=GOLD)
         )
     _add_definition_panel(
-        ws, len(result.category_position) + 4, 13, CATEGORY_DEFINITIONS, label_end_column=4
+        ws, len(result.category_position) + 4, 13, _labels(CATEGORY_DEFINITIONS, config), label_end_column=4
     )
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = f"A1:M{last_row}"
     ws.sheet_view.showGridLines = False
 
 
-def _prepare_competitor_sheet(wb: Workbook, result: AnalysisResult) -> None:
+def _prepare_competitor_sheet(wb: Workbook, result: AnalysisResult, config: AppConfig) -> None:
     ws = wb.create_sheet("Konkurrenter")
     frame = result.competitor_position.drop(columns=["retailer_name"], errors="ignore")
-    last_row = _write_dataframe(ws, frame, COMPETITOR_HEADERS)
+    last_row = _write_dataframe(ws, frame, _headers(COMPETITOR_HEADERS, config))
     _add_table(ws, "CompetitorPositionTable", last_row, len(COMPETITOR_HEADERS))
     widths = [28, 18, 18, 21, 20, 22, 22]
     for column, width in enumerate(widths, start=1):
@@ -278,7 +345,7 @@ def _prepare_competitor_sheet(wb: Workbook, result: AnalysisResult) -> None:
             f"E2:E{last_row}", DataBarRule(start_type="min", end_type="max", color=GOLD)
         )
     _add_definition_panel(
-        ws, len(frame) + 8, 7, COMPETITOR_DEFINITIONS, label_end_column=1
+        ws, len(frame) + 8, 7, _labels(COMPETITOR_DEFINITIONS, config), label_end_column=1
     )
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = f"A1:G{last_row}"
@@ -291,23 +358,24 @@ def _prepare_action_sheet(
     frame: pd.DataFrame,
     table_name: str,
     *,
+    config: AppConfig,
     bar_color: str,
     availability_highlight: bool = False,
 ) -> None:
     ws = wb.create_sheet(name)
-    last_row = _write_dataframe(ws, frame, ACTION_HEADERS)
+    last_row = _write_dataframe(ws, frame, _headers(ACTION_HEADERS, config))
     _add_table(ws, table_name, last_row, len(ACTION_HEADERS))
     widths = [14, 17, 18, 48, 28, 18, 20, 19, 24, 17, 15, 18, 55, 55]
     for column, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(column)].width = width
     for row in range(2, last_row + 1):
         for column in [6, 8, 10]:
-            ws.cell(row, column).number_format = '#,##0 "NOK"'
+            ws.cell(row, column).number_format = f'#,##0 "{config.monitoring.currency}"'
         ws.cell(row, 11).number_format = "0.0%"
         ws.cell(row, 12).number_format = "#,##0"
         for column in [13, 14]:
             cell = ws.cell(row, column)
-            if cell.value:
+            if isinstance(cell.value, str) and cell.value.startswith(("https://", "http://")):
                 cell.hyperlink = str(cell.value)
                 cell.style = "Hyperlink"
     if last_row >= 2:
@@ -329,7 +397,7 @@ def _prepare_action_sheet(
         "P1:X1",
         "Hva betyr kolonnene? Se også arket «Kolonneforklaringer» for samlet oversikt.",
     )
-    for offset, (label, definition) in enumerate(ACTION_DEFINITIONS.items(), start=2):
+    for offset, (label, definition) in enumerate(_labels(ACTION_DEFINITIONS, config).items(), start=2):
         ws.merge_cells(f"P{offset}:R{offset}")
         ws.merge_cells(f"S{offset}:X{offset}")
         fill = GREY_LIGHT if offset % 2 else BLUE_LIGHT
@@ -360,18 +428,23 @@ def _nb_number(value: int | float) -> str:
 
 
 def _pct(value: float) -> str:
+    if not math.isfinite(value):
+        return "Ikke beregnbart"
     return f"{value * 100:.1f}".replace(".", ",") + " %"
 
 
 def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) -> None:
     ws = wb.create_sheet("Analyse & oppsummering")
     summary = result.summary
+
+    def callout(sheet, cell_range, text, fill=GREY_LIGHT, *, center=False):
+        _callout(sheet, cell_range, _report_text(text, config), fill, center=center)
     ws.sheet_view.showGridLines = False
     for column in range(1, 13):
         ws.column_dimensions[get_column_letter(column)].width = 13
 
     ws.merge_cells("A1:L1")
-    ws["A1"] = config.report.title
+    ws["A1"] = _report_text(config.report.title, config)
     ws["A1"].fill = PatternFill("solid", fgColor=INK)
     ws["A1"].font = Font(name=FONT, bold=True, color=WHITE, size=20)
     ws["A1"].alignment = Alignment(vertical="center")
@@ -391,7 +464,7 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
         ws.merge_cells(label_range)
         ws.merge_cells(value_range)
         label_cell = ws[label_range.split(":")[0]]
-        label_cell.value = label
+        label_cell.value = _report_text(label, config)
         label_cell.fill = PatternFill("solid", fgColor=fill)
         label_cell.font = Font(name=FONT, bold=True, color=SLATE, size=10)
         label_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -414,7 +487,7 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
     kpi("J8:L8", "J9:L10", "TILGJENGELIGHETSRISIKO", summary["availability_risk_count"], "#,##0", GOLD_LIGHT)
 
     _section_header(ws, "A12:L12", "Hva pilotdataene sier")
-    _callout(
+    callout(
         ws,
         "A13:L14",
         f"Prisbildet er bredt nok til å prioritere: {_nb_number(summary['above_5pct_count'])} av "
@@ -424,14 +497,14 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
         f"{_pct(summary['median_gap_to_market'])} over markedsmedianen.",
         GOLD_LIGHT,
     )
-    _callout(
+    callout(
         ws,
         "A15:L16",
         f"Tilgjengelighet er et like stort kommersielt signal: {_nb_number(summary['availability_risk_count'])} "
         f"produkter var ikke «in_stock» hos {config.retailer.name} mens minst én konkurrent var det. "
         f"{summary['top_risk_category']} alene står for {_nb_number(summary['top_risk_category_count'])} slike produktgap.",
     )
-    _callout(
+    callout(
         ws,
         "A17:L18",
         f"Markedet flytter seg i løpet av perioden: {_nb_number(summary['own_price_changed_products'])} egne priser "
@@ -440,7 +513,7 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
         f"på de sammenlignbare Prisradar-dagene.",
         BLUE_LIGHT,
     )
-    _callout(
+    callout(
         ws,
         "A19:L20",
         f"{_nb_number(summary['underpricing_watch_count'])} produkter lå mer enn 5 % under alle tilgjengelige "
@@ -449,7 +522,7 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
     )
 
     _section_header(ws, "A22:L22", "Forslag til pitch: selg beslutningshastighet, ikke bare data")
-    _callout(
+    callout(
         ws,
         "A23:L24",
         "«Vi gir dere en daglig prioritert arbeidsliste over hvor pris eller tilgjengelighet faktisk kan koste "
@@ -463,7 +536,7 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
         ("J26:L29", "4. Produksjons-SLA\nFerskhet, dekning, duplikater og feilvarsling"),
     ]
     for cell_range, text in cards:
-        _callout(ws, cell_range, text, GREY_LIGHT, center=True)
+        callout(ws, cell_range, text, GREY_LIGHT, center=True)
 
     score = result.category_position.assign(
         action_score=result.category_position["price_opportunities"]
@@ -476,7 +549,7 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
         .tolist()
     ]
     _section_header(ws, "A31:L31", "Anbefalt neste steg")
-    _callout(
+    callout(
         ws,
         "A32:L33",
         f"Kjør en {config.report.pilot_days}-dagers pilot i de største handlingskategoriene: "
@@ -489,7 +562,7 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
         if not summary["missing_prisradar_dates"]
         else "Prisradar-kjøring mangler " + ", ".join(summary["missing_prisradar_dates"])
     )
-    _callout(
+    callout(
         ws,
         "A35:L37",
         f"Viktig for pitchen: dette er et {len(pd.date_range(summary['period_start'], summary['period_end']))}-dagers "
@@ -501,7 +574,7 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
     )
 
     _section_header(ws, "A39:L39", "Slik leses arket")
-    _callout(
+    callout(
         ws,
         "A40:L42",
         "KPI-kortene øverst oppsummerer siste snapshot. Midtseksjonen forklarer de viktigste funnene, mens de "
@@ -548,9 +621,9 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
         ws.merge_cells(f"F{index}:L{index}")
         fill = GREY_LIGHT if index % 2 == 0 else BLUE_LIGHT
         for anchor, cell_value in [
-            (f"A{index}", label),
+            (f"A{index}", _report_text(label, config)),
             (f"D{index}", _value(value)),
-            (f"F{index}", definition),
+            (f"F{index}", _report_text(definition, config)),
         ]:
             cell = ws[anchor]
             cell.value = cell_value
@@ -563,7 +636,7 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
         value_cell.number_format = {
             "count": "#,##0",
             "pct": "0%",
-            "currency": '#,##0 "NOK"',
+            "currency": f'#,##0 "{config.monitoring.currency}"',
         }.get(kind, "General")
         if kind == "source" and summary["source_url"]:
             value_cell.hyperlink = summary["source_url"]
@@ -577,7 +650,7 @@ def _prepare_dashboard(wb: Workbook, result: AnalysisResult, config: AppConfig) 
     ws.print_area = "A1:L65"
 
 
-def _prepare_glossary(wb: Workbook) -> None:
+def _prepare_glossary(wb: Workbook, config: AppConfig) -> None:
     ws = wb.create_sheet("Kolonneforklaringer")
     rows: list[tuple[str, str, str]] = []
     for sheet, definitions in [
@@ -587,7 +660,7 @@ def _prepare_glossary(wb: Workbook) -> None:
         ("Tilgjengelighetsrisiko", ACTION_DEFINITIONS),
         ("Marginvakt", ACTION_DEFINITIONS),
     ]:
-        rows.extend((sheet, column, definition) for column, definition in definitions.items())
+        rows.extend((sheet, column, definition) for column, definition in _labels(definitions, config).items())
     for column, header in enumerate(["Ark", "Kolonne", "Betyr"], start=1):
         ws.cell(1, column, header)
         _header_style(ws.cell(1, column))
@@ -615,15 +688,15 @@ def build_report(result: AnalysisResult, config: AppConfig, output_path: str | P
     output.parent.mkdir(parents=True, exist_ok=True)
     wb = Workbook()
     wb.remove(wb.active)
-    wb.properties.creator = "Horizon Ventures AS"
-    wb.properties.title = config.report.title
+    wb.properties.creator = "Auto Analyse"
+    wb.properties.title = _report_text(config.report.title, config)
     wb.properties.subject = "Pris- og tilgjengelighetsanalyse"
     wb.properties.created = datetime.now()
 
-    _prepare_category_sheet(wb, result)
-    _prepare_competitor_sheet(wb, result)
+    _prepare_category_sheet(wb, result, config)
+    _prepare_competitor_sheet(wb, result, config)
     _prepare_action_sheet(
-        wb, "Prisvarsler", result.price_opportunities, "PriceAlertsTable", bar_color=GOLD
+        wb, "Prisvarsler", result.price_opportunities, "PriceAlertsTable", bar_color=GOLD, config=config
     )
     _prepare_action_sheet(
         wb,
@@ -631,13 +704,15 @@ def build_report(result: AnalysisResult, config: AppConfig, output_path: str | P
         result.availability_risks,
         "AvailabilityRisksTable",
         bar_color=GOLD,
+        config=config,
         availability_highlight=True,
     )
     _prepare_action_sheet(
-        wb, "Marginvakt", result.underpricing_watch, "MarginWatchTable", bar_color=BLUE
+        wb, "Marginvakt", result.underpricing_watch, "MarginWatchTable", bar_color=BLUE, config=config
     )
     _prepare_dashboard(wb, result, config)
-    _prepare_glossary(wb)
+    _prepare_glossary(wb, config)
+    add_header_notes(wb, config)
     wb.active = wb.sheetnames.index("Analyse & oppsummering")
     wb.save(output)
     return output

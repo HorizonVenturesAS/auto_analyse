@@ -1,0 +1,14 @@
+# Gjelder kun auto-analyse-brand / python -m auto_analyse.brand.
+[brand]
+currency = "NOK"
+in_stock_value = "in_stock"
+extreme_price_ratio = 5.0
+price_leader_tolerance = 0.01
+min_peer_stores = 2
+max_snapshot_age_hours = 48.0
+title = "Brandinnsikt – pris og tilgjengelighet hos nettbutikkene"
+
+[brand_aliases]
+"JRG" = "Jrg Sanipex"
+"Structon" = "Structron"
+"Power Adhesives" = "Power Adhesive"

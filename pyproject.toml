@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 auto-analyse = "auto_analyse.cli:main"
+auto-analyse-brand = "auto_analyse.brand.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

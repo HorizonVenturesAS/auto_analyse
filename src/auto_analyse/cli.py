@@ -1,84 +1,87 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
+import hashlib
 import json
+import math
 from pathlib import Path
+import sys
 from typing import Iterable
 
 import numpy as np
 
 from .analysis import analyze_file
 from .config import load_config
-from .report import build_report
+from .io_utils import validate_outputs
+from .report import build_report, header_note_specs
 
-
-SUPPORTED_PATTERNS = ("*.csv", "*.csv.gz", "*.zip", "*.xlsx", "*.xls")
+SUPPORTED_PATTERNS = ("*.csv", "*.csv.gz", "*.zip", "*.xlsx")
+DEMO = Path("examples/demo/retail.csv")
 
 
 def _discover_latest(search_dirs: Iterable[Path]) -> Path:
-    candidates: list[Path] = []
+    """Directories are ordered fallbacks; never prefer a demo over inbox data."""
     for directory in search_dirs:
-        if not directory.exists():
-            continue
-        for pattern in SUPPORTED_PATTERNS:
-            candidates.extend(path for path in directory.glob(pattern) if path.is_file())
-    if not candidates:
-        raise FileNotFoundError(
-            "Fant ingen råfil. Legg en CSV/ZIP/XLSX i data/inbox eller oppgi filbanen eksplisitt."
-        )
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+        candidates = [path for pattern in SUPPORTED_PATTERNS for path in directory.glob(pattern) if path.is_file() and not path.name.startswith("~$")]
+        if candidates:
+            return max(candidates, key=lambda path: (path.stat().st_mtime_ns, path.name))
+    raise FileNotFoundError("Fant ingen råfil. Legg en CSV/CSV.GZ/ZIP/XLSX i data/inbox eller oppgi filbanen.")
 
 
-def _json_default(value):
+def _json_value(value):
+    if isinstance(value, dict):
+        return {key: _json_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_value(item) for item in value]
     if isinstance(value, np.generic):
-        return value.item()
-    raise TypeError(f"Kan ikke serialisere {type(value)!r}")
+        value = value.item()
+    return None if isinstance(value, float) and not math.isfinite(value) else value
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Lag standard pris- og tilgjengelighetsrapport fra crawl-data."
-    )
-    parser.add_argument(
-        "input",
-        nargs="?",
-        help="CSV, CSV.GZ, ZIP eller XLSX. Nyeste fil oppdages automatisk hvis utelatt.",
-    )
+    parser = argparse.ArgumentParser(description="Lag pris- og tilgjengelighetsrapport fra en lokal råfil.")
+    parser.add_argument("input", nargs="?", help="CSV, CSV.GZ, ZIP med én CSV eller XLSX.")
     parser.add_argument("-o", "--output", help="Målfil for .xlsx-rapporten")
-    parser.add_argument("--config", default="config/report.toml", help="TOML-konfigurasjon")
-    parser.add_argument(
-        "--source-url", default=None, help="Valgfri sporbar kilde-URL som vises i rapporten"
-    )
+    parser.add_argument("--config", help="TOML-konfigurasjon. Standard: config/report.toml hvis den finnes.")
+    parser.add_argument("--source-url", help="Valgfri sporbar kilde-URL i rapporten")
+    parser.add_argument("--demo", action="store_true", help="Bruk utelukkende den syntetiske retaildemoen.")
+    parser.add_argument("--overwrite", action="store_true", help="Tillat overskriving av eksisterende rapport og sidefiler.")
     args = parser.parse_args(argv)
-
-    source = (
-        Path(args.input)
-        if args.input
-        else _discover_latest([Path("data/inbox"), Path("examples/raw")])
-    )
-    if not source.exists():
-        parser.error(f"Filen finnes ikke: {source}")
-    output = (
-        Path(args.output)
-        if args.output
-        else Path("outputs") / f"{source.stem}_innsiktsrapport.xlsx"
-    )
-    config = load_config(args.config)
-    result = analyze_file(source, config, source_url=args.source_url)
-    report_path = build_report(result, config, output)
-    manifest_path = report_path.with_suffix(".json")
-    manifest_path.write_text(
-        json.dumps(result.summary, ensure_ascii=False, indent=2, default=_json_default),
-        encoding="utf-8",
-    )
-    print(
-        json.dumps(
-            {
-                "input": str(source),
-                "report": str(report_path),
-                "manifest": str(manifest_path),
-            },
-            ensure_ascii=False,
-        )
-    )
-    return 0
+    try:
+        if args.demo and args.input:
+            raise ValueError("Velg enten --demo eller en inputfil.")
+        if args.demo:
+            source = DEMO
+        elif args.input:
+            source = Path(args.input)
+        else:
+            try:
+                source = _discover_latest([Path("data/inbox")])
+            except FileNotFoundError:
+                source = DEMO
+        if not source.is_file():
+            raise ValueError(f"Filen finnes ikke: {source}. Kjør fra prosjektmappen eller oppgi en eksisterende fil.")
+        demo = source.resolve() == DEMO.resolve()
+        if demo:
+            print("DEMO: syntetiske data, ikke observerte markedspriser.", file=sys.stderr)
+        config_path = Path(args.config) if args.config else Path("config/demo-retail.toml" if demo else "config/report.toml")
+        config = load_config(config_path if args.config or demo or config_path.exists() else None)
+        output = Path(args.output) if args.output else Path("outputs") / ("demo/retail.xlsx" if demo else f"{source.stem}_innsiktsrapport.xlsx")
+        if output.suffix.lower() != ".xlsx":
+            raise ValueError("Rapportens målfil må slutte på .xlsx.")
+        manifest = output.with_suffix(".json")
+        notes = output.with_suffix(".notes.json")
+        validate_outputs(source, [output, manifest, notes], overwrite=args.overwrite)
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        result = analyze_file(source, config, source_url=args.source_url)
+        if hashlib.sha256(source.read_bytes()).hexdigest() != digest:
+            raise ValueError("Råfilen ble endret mens den ble lest. Kjør på et stabilt uttrekk.")
+        result.summary.update(source_sha256=digest, settings=asdict(config), demo=demo)
+        report = build_report(result, config, output)
+        manifest.write_text(json.dumps(_json_value(result.summary), ensure_ascii=False, indent=2, allow_nan=False), encoding="utf-8")
+        notes.write_text(json.dumps({"version": 1, "notes": header_note_specs(config)}, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(json.dumps({"input": str(source), "report": str(report), "manifest": str(manifest), "header_notes": str(notes), "demo": demo}, ensure_ascii=False))
+        return 0
+    except (ValueError, TypeError, OSError, ImportError) as error:
+        parser.error(str(error))

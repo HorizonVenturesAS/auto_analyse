@@ -1,3 +1,5 @@
 #!/usr/bin/env sh
 set -eu
-python -m auto_analyse examples/raw/flisekompaniet_category_extract_last_7_days_2026-08-20.zip --output outputs/example_report.xlsx
+cd "$(dirname "$0")/.."
+.venv/bin/python -m auto_analyse --demo "$@"
+.venv/bin/python -m auto_analyse.brand --demo "$@"

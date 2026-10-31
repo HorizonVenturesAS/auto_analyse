@@ -1,0 +1,19 @@
+# Alle tilhørende produkter, priser og butikker er oppdiktet.
+[retailer]
+name = "Demobutikken"
+domain = "demobutikk.example"
+scraper_key = "demo_retail"
+
+[monitoring]
+competitor_scraper_key = "demo_market"
+in_stock_value = "in_stock"
+currency = "NOK"
+price_leader_tolerance = 0.01
+price_alert_threshold = 0.05
+critical_price_alert_threshold = 0.15
+underpricing_threshold = -0.05
+
+[report]
+title = "DEMO: syntetisk konkurranseinnsikt"
+pilot_days = 30
+pilot_category_count = 3
