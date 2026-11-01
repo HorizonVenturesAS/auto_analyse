@@ -1,4 +1,5 @@
 import contextlib
+from dataclasses import replace
 import hashlib
 import io
 import json
@@ -15,6 +16,12 @@ from auto_analyse.brand.analysis import NA, read_source
 from auto_analyse.brand.cli import discover_latest, main
 from auto_analyse.brand.config import load_config
 from auto_analyse.brand.report import COLUMNS, KPI_KEYS, SHEETS, header_note_specs
+
+
+def analyze_synthetic(source, config=None, **kwargs):
+    """Explicit authorization for this module's synthetic calculation fixtures."""
+    return analyze_file(source, replace(config or BrandConfig(), price_evidence_mode="synthetic"),
+                        allow_synthetic=True, **kwargs)
 
 
 def offer(product="p1", shop="a.no", price=100, **overrides):
@@ -56,12 +63,12 @@ class BrandAnalysisTest(unittest.TestCase):
         return path
 
     def analyze(self, rows=None, config=None):
-        return analyze_file(self.source(rows if rows is not None else fixture()), config, supplier="supplier.no")[0]
+        return analyze_synthetic(self.source(rows if rows is not None else fixture()), config, supplier="supplier.no")[0]
 
     def test_price_math_dedup_peers_and_supplier_isolation(self):
         source = self.source(fixture())
         original = source.read_bytes()
-        results = analyze_file(source)
+        results = analyze_synthetic(source)
         self.assertEqual(len(results), 2)
         r = next(r for r in results if r.summary["supplier"] == "supplier.no")
         s = r.summary
@@ -130,6 +137,54 @@ class BrandAnalysisTest(unittest.TestCase):
         bad = self.analyze([offer(brand="Unrelated"), offer(shop="b.no")])
         self.assertIn("Brandnavn", bad.products.iloc[0].review)
 
+    def test_variant_exclusion_precedes_shop_minimum_campaign_and_peer_prices(self):
+        base = dict(title="Metallbor HSS-R 10mm AX50105", model="AX50105")
+        rows = [offer(price=16.9, offer_id="wrong", offer_title="HSS-R 1,5mm AX50005", regular_price=30, **base),
+                offer(price=38.9, offer_id="correct", offer_title="HSS-R 10 mm AX50105", **base),
+                offer(shop="b.no", price=53, offer_title="HSS-R 10mm AX50105", **base),
+                offer(shop="c.no", price=78, offer_title="HSS-R 10mm AX50105", **base)]
+        r = self.analyze(rows)
+        self.assertEqual(r.summary["comparable"], 1)
+        self.assertEqual(r.products.iloc[0].min_price, 38.9)
+        self.assertAlmostEqual(r.products.iloc[0].gap_pct, 78 / 38.9 - 1)
+        audit = r.observations.set_index("offer_id")
+        self.assertEqual(audit.loc["wrong", "audit_offer_variant_status"], "conflict")
+        self.assertFalse(audit.loc["wrong", "audit_selected_store_offer"])
+        self.assertFalse(audit.loc["wrong", "audit_price_eligible"])
+        self.assertEqual(audit.loc["wrong", "price"], 16.9)
+        self.assertTrue(audit.loc["correct", "audit_price_eligible"])
+        self.assertEqual(len(r.campaigns), 0)
+        self.assertAlmostEqual(r.retailers.set_index("retailer").loc["b.no", "peer_gap"], 53 / ((38.9 + 78) / 2) - 1)
+
+    def test_unverified_offer_does_not_supply_candidate_or_campaign_price(self):
+        r = self.analyze([offer(title="Metallbor HSS-R 10mm AX5000", model="AX5000", offer_title="Metallbor", regular_price=200),
+                          offer(shop="b.no", title="Metallbor HSS-R 10mm AX5000", model="AX5000", offer_title="Metallbor 10mm AX5000", price=130)])
+        audit = r.observations.set_index("retailer")
+        self.assertEqual(audit.loc["a.no", "audit_offer_variant_status"], "unverified")
+        self.assertFalse(audit.loc["a.no", "audit_price_eligible"])
+        self.assertEqual(r.products.iloc[0].min_price, 130)
+        self.assertEqual(len(r.campaigns), 0)
+
+    def test_cli_version_suffix_and_path_validation(self):
+        source = self.source([offer()])
+        out = self.root / "versioned"
+        capture = io.StringIO()
+        with contextlib.redirect_stdout(capture):
+            self.assertEqual(main([str(source), "--output-dir", str(out), "--name-suffix", "_v2"]), 0)
+        entry = json.loads(capture.getvalue())["reports"][0]
+        self.assertTrue(entry["report"].endswith("_v2.xlsx"))
+        self.assertTrue(entry["observations"].endswith("_v2.observations.jsonl"))
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            main([str(source), "--output-dir", str(out), "--name-suffix", "_../bad"])
+
+    def test_conflicting_product_variant_claims_cannot_mix_under_one_product_id(self):
+        r = self.analyze([offer(title="Bor AX50105", model="AX50105", product_diameter_mm=10,
+                                offer_title="Bor AX50105", offer_diameter_mm=10),
+                          offer(shop="b.no", title="Bor AX50105", model="AX50105", product_diameter_mm=1.5,
+                                offer_title="Bor AX50105", offer_diameter_mm=1.5)])
+        self.assertEqual(r.summary["comparable"], 0)
+        self.assertIn("Motstridende variantgrunnlag", r.products.iloc[0].review)
+
     def test_exact_duplicates_and_conflicting_offer_ids(self):
         r = self.analyze([offer(), offer(), offer(shop="b.no", price=150)])
         self.assertEqual(r.summary["comparable"], 1)
@@ -168,8 +223,8 @@ class BrandAnalysisTest(unittest.TestCase):
     def test_freshness_reference_is_global_and_independent_of_supplier_filter(self):
         source = self.source([offer(), offer(shop="b.no"),
                               offer("other", supplier="other.no", observed_at="2026-09-20T12:00:00Z")])
-        all_results = analyze_file(source)
-        filtered = analyze_file(source, supplier="supplier.no")[0]
+        all_results = analyze_synthetic(source)
+        filtered = analyze_synthetic(source, supplier="supplier.no")[0]
         unfiltered = next(r for r in all_results if r.summary["supplier"] == "supplier.no")
         self.assertEqual(filtered.summary["comparable"], 0)
         self.assertEqual(filtered.summary["snapshot_reference_time"], unfiltered.summary["snapshot_reference_time"])

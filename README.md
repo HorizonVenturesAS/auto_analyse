@@ -23,6 +23,13 @@ Retail gir én rapport. Brand gir én rapport per leverandør i råfilen.
 Rapportene er ferdig beregnede snapshots. Kjør programmet igjen ved nye data;
 manuell redigering av Excel beregner ikke analysen på nytt.
 
+Brandrapporter sammenligner som standard observerte kildepriser (`source`).
+Variantkontroll og kjente pris-/kildekonflikter kan sperre tilbud. Bruk
+`--evidence-manifest <fil>` for supplerende API-, offentlig side- og butikkbevis;
+manglende butikkbevis vises som kontrollstatus og sperrer ikke alene kildeprisen.
+Modusen `strict` krever uavhengig butikkbekreftelse. Se
+[innsamlingsveiledningen](docs/collection.md) for fremgangsmåten.
+
 ## Start i Codex eller Claude
 
 1. Klon eller last ned prosjektet og åpne **prosjektmappen** i en lokal kodeøkt.
@@ -154,6 +161,28 @@ En eksplisitt `--config` som ikke finnes gir feil.
 
 ## Resultatet
 
+### Prisgrunnlag i brandrapporter
+
+`config/brand.toml` bruker `price_evidence_mode = "source"`. Gyldige kildepriser
+og kildeoppgitt lager kan inngå etter variant-, ferskhets- og konfliktkontroll.
+Direkte butikkbekreftelse vises separat. `strict` krever dokumentert API-,
+offentlig side- og butikkpris, samt uavhengig lagerbevis for prissammenligninger.
+Velg dette bare når oppdraget krever det; manglende bevis kan gi et tomt prisutvalg.
+Begge moduser utelater feil/uavklarte salgsvarianter og kjente beviskonflikter.
+
+Når et bevismanifest finnes, oppgi det også i source-modus:
+
+```sh
+python -m auto_analyse.brand data/inbox/brands/catalogue.csv --config config/brand.toml --evidence-manifest data/min-analyse/evidence-manifest.json --name-suffix _v2
+```
+
+Manifestet og bevisfilene må beholdes sammen, med relative bevisbaner under
+manifestmappen. `--name-suffix` versjonerer Excel og alle sidefiler; det henter
+ikke nye priser. For nye merker eller butikker følger agenten avgrensningen og
+piloten i [innsamlingsveiledningen](docs/collection.md).
+
+### Arbeidsbok og revisjonsspor
+
 Retail har syv faner: Kategorier, Konkurrenter, Prisvarsler, Tilgjengelighetsrisiko,
 Marginvakt, Analyse & oppsummering og Kolonneforklaringer.
 
@@ -162,6 +191,9 @@ Kampanjer, Analyse & oppsummering og Kolonneforklaringer.
 
 Ved siden av Excel ligger `.json` med KPI-er og `.notes.json` med kolonnenotater.
 Brand skriver også `.observations.jsonl` med kontrollårsaker per observasjon.
+Brandfanen Prisgap viser tilbudsvariantkontroll og separat omfang av prisbevis.
+`audit_price_basis` skiller kildeobserverte og uavhengig bekreftede priser;
+`audit_price_eligible` viser hvilke tilbud som faktisk brukes i prisgrunnlaget.
 Alle disse filene kan inneholde kundedata og skal bli under `outputs/`.
 
 Pris- og lagerdata beskriver det observerte utvalget. De dokumenterer ikke salg, margin,

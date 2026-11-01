@@ -12,6 +12,9 @@ import unicodedata
 import pandas as pd
 
 from .config import BrandConfig
+from .variants import assess_variant
+from .evidence import PriceEvidence
+import json
 
 
 REQUIRED_COLUMNS = {
@@ -23,6 +26,7 @@ TEXT_COLUMNS = [
     "supplier", "requested_brand", "product_id", "title", "brand", "category", "gtin",
     "retailer", "offer_id", "currency", "availability", "prisradar_url", "retailer_url",
     "offer_title", "size", "color", "product_status", "price_qualifier", "review_reason",
+    "model", "offer_model", "offer_gtin", "product_attributes", "offer_attributes", "offer_review_reason",
 ]
 PRODUCT_KEY = ["supplier_key", "brand_key", "product_id"]
 NA = "Ikke beregnbart"
@@ -66,7 +70,7 @@ def _bool(value):
 
 def read_source(path: str | Path) -> pd.DataFrame:
     path = Path(path)
-    identifiers = {c: "string" for c in ("product_id", "gtin", "offer_id", "retailer_id", "brand_id")}
+    identifiers = {c: "string" for c in ("product_id", "gtin", "offer_gtin", "offer_id", "retailer_id", "brand_id")}
     if path.suffix.lower() == ".xlsx":
         with pd.ExcelFile(path, engine="openpyxl") as wb:
             matches = [s for s in wb.sheet_names if REQUIRED_COLUMNS <= set(pd.read_excel(wb, sheet_name=s, nrows=0).columns)]
@@ -119,7 +123,7 @@ def _median(values):
     return float(median(finite)) if finite else None
 
 
-def _prepare(frame: pd.DataFrame, config: BrandConfig) -> pd.DataFrame:
+def _prepare(frame: pd.DataFrame, config: BrandConfig, *, evidence=None, synthetic=False) -> pd.DataFrame:
     d = frame.copy()
     if any(str(c).startswith("audit_") for c in d.columns):
         raise ValueError("Kolonnenavn med audit_-prefiks er reservert for sporbarhet.")
@@ -151,6 +155,30 @@ def _prepare(frame: pd.DataFrame, config: BrandConfig) -> pd.DataFrame:
     aliases = {normalize_name(k): normalize_name(v) for k, v in config.brand_aliases.items()}
     d["audit_brand_mismatch"] = [normalize_name(actual) != aliases.get(key, key) for key, actual in zip(d.brand_key, d.brand)]
     d["audit_variant_conflict"] = [_variant_conflict(r) for r in d.itertuples()]
+    variants = [assess_variant(r) for r in d.itertuples()]
+    d["audit_offer_variant_status"] = [v["status"] for v in variants]
+    d["audit_offer_variant_reasons"] = ["; ".join(v["reasons"]) for v in variants]
+    d["audit_offer_variant_evidence"] = [json.dumps(v["evidence"], ensure_ascii=False, sort_keys=True) for v in variants]
+    d["audit_variant_status"] = d["audit_offer_variant_status"]
+    checks = ([{"source_consistency_status":"synthetic", "merchant_price_status":"synthetic",
+                "stock_validation_status":"synthetic", "source_cache_status":"synthetic", "source_vat_basis":"synthetic",
+                "price_context_status":"synthetic", "price_evidence_reason":"Explicitly authorized synthetic fixture"}] * len(d)
+              if synthetic else [evidence.assess(row) for row in d.itertuples()])
+    for key in ("source_consistency_status", "merchant_price_status", "stock_validation_status", "price_evidence_reason",
+                "source_cache_status", "source_vat_basis", "price_context_status"):
+        d["audit_" + key] = [check[key] for check in checks]
+    d["audit_price_evidence_eligible"] = [synthetic or (
+        check["source_consistency_status"] not in {"conflict", "invalid"}
+        and check["merchant_price_status"] not in {"conflict", "invalid"}
+        if config.price_evidence_mode == "source" else
+        check["source_consistency_status"] == "verified" and check["merchant_price_status"] == "verified")
+        for check in checks]
+    d["audit_price_basis"] = ["synthetic" if synthetic else "independently_verified"
+        if check["source_consistency_status"] == "verified" and check["merchant_price_status"] == "verified"
+        else "source_observed" for check in checks]
+    d["audit_product_variant_signature"] = [json.dumps(sorted({json.dumps(
+        {k: c[k] for k in ("axis", "role", "value")}, ensure_ascii=False, sort_keys=True)
+        for c in v["evidence"]["product_claims"]}), ensure_ascii=False) for v in variants]
     d["audit_used"] = d.is_used.map(_bool)
     d["audit_stale"] = d.is_stale.map(_bool)
     latest = d.groupby(PRODUCT_KEY).audit_observed_utc.transform("max")
@@ -193,7 +221,10 @@ def _analyze_supplier(d: pd.DataFrame, config: BrandConfig, source: Path, as_of)
     def public_offer(row):
         return (pd.notna(row.price) and math.isfinite(row.price) and row.price > 0
                 and row.currency == config.currency and row.audit_used == False
-                and row.audit_stale == False and not row.price_qualifier)
+                and row.audit_stale == False and not row.price_qualifier
+                and row.audit_offer_variant_status in {"compatible", "not_applicable"}
+                and row.audit_price_evidence_eligible
+                and not row.offer_review_reason)
 
     def lowest_per_shop(rows):
         chosen = {}
@@ -210,6 +241,8 @@ def _analyze_supplier(d: pd.DataFrame, config: BrandConfig, source: Path, as_of)
             review.append("Brandnavn må kontrolleres")
         if any(len({getattr(r, c) for r in g}) > 1 for c in ("gtin", "title", "size", "color", "brand", "category")):
             review.append("Motstridende produktmetadata")
+        if len({r.audit_product_variant_signature for r in g}) > 1:
+            review.append("Motstridende variantgrunnlag for samme produkt og snapshot")
         if {r.gtin for r in g} & shared_gtins:
             review.append("GTIN delt av flere produkt-ID-er")
         if any(r.audit_variant_conflict for r in g):
@@ -225,7 +258,9 @@ def _analyze_supplier(d: pd.DataFrame, config: BrandConfig, source: Path, as_of)
             review.append("For gammelt snapshot i forhold til uttrekket")
 
         stock_shops = {r.shop for r in offers if r.availability == config.in_stock_value}
-        valid = [r for r in offers if public_offer(r) and r.availability == config.in_stock_value]
+        valid = [r for r in offers if public_offer(r) and r.availability == config.in_stock_value
+                 and (r.audit_stock_validation_status != "conflict" if config.price_evidence_mode == "source"
+                      else r.audit_stock_validation_status in {"verified", "synthetic"})]
         # Candidate prices are retained for inspection even for quarantined products.
         chosen = lowest_per_shop(valid)
         prices = [r.price for r in chosen.values()]
@@ -233,6 +268,11 @@ def _analyze_supplier(d: pd.DataFrame, config: BrandConfig, source: Path, as_of)
         if len(prices) >= 2 and high / low > config.extreme_price_ratio:
             review.append("Ekstrem prisratio – kontroller pris og pakning")
         reason = "; ".join(review)
+        variant_conflicts = sum(r.audit_offer_variant_status == "conflict" for r in offers)
+        variant_unknown = sum(r.audit_offer_variant_status != "conflict" and
+                              (r.audit_offer_variant_status == "unverified" or bool(r.offer_review_reason)) for r in offers)
+        variant_note = (f"{variant_conflicts} feil variant; {variant_unknown} uavklart. Utelatt fra prisgrunnlaget."
+                        if variant_conflicts or variant_unknown else "")
         comparable = len(prices) >= 2 and not reason
         chosen_indices = {r.Index for r in chosen.values()}
         selected_candidates.update(chosen_indices)
@@ -256,6 +296,12 @@ def _analyze_supplier(d: pd.DataFrame, config: BrandConfig, source: Path, as_of)
             "cheapest": cheapest, "expensive": expensive, "comparable": comparable,
             "status": "Til kontroll" if reason else ("Sammenlignbart" if comparable else NA),
             "review": reason, "_shops": {r.shop for r in offers},
+            "offer_review": variant_note,
+            "price_evidence": ("Syntetisk demo" if config.price_evidence_mode == "synthetic" else
+                f"{sum(r.audit_source_consistency_status == 'verified' for r in offers)}/{len(offers)} kildesamsvar; "
+                f"{sum(r.audit_merchant_price_status == 'verified' for r in offers)}/{len(offers)} butikkpris; "
+                f"{sum(r.audit_stock_validation_status == 'verified' for r in offers)}/{len(offers)} lager bekreftet. "
+                "Se bevis og avvisningsårsaker per tilbud i observasjonsfilen."),
         })
         for row in g:
             flags = []
@@ -274,6 +320,16 @@ def _analyze_supplier(d: pd.DataFrame, config: BrandConfig, source: Path, as_of)
                     flags.append("Utdatert eller ukjent ferskhet")
                 if row.price_qualifier:
                     flags.append("Pris med vilkår")
+                if row.audit_offer_variant_status in {"conflict", "unverified"}:
+                    flags.append("Tilbudsvariant: " + row.audit_offer_variant_reasons)
+                if row.offer_review_reason:
+                    flags.append("Tilbud krever kontroll: " + row.offer_review_reason)
+                if not row.audit_price_evidence_eligible:
+                    flags.append("Prisgrunnlag ikke verifisert: " + row.audit_price_evidence_reason)
+                if config.price_evidence_mode == "source" and row.audit_stock_validation_status == "conflict":
+                    flags.append("Motstridende lagerbevis")
+                elif config.price_evidence_mode != "source" and row.audit_stock_validation_status not in {"verified", "synthetic"}:
+                    flags.append("Lagerstatus kun kildeoppgitt eller uavklart")
                 if not flags and row.Index not in chosen_indices:
                     flags.append("Annet tilbud valgt for samme produkt/butikk")
             if reason:
@@ -362,7 +418,7 @@ def _analyze_supplier(d: pd.DataFrame, config: BrandConfig, source: Path, as_of)
     ]
     offer_rows = selected[selected.offer_id.ne("") & selected.shop.ne("")]
     summary = {
-        "report_type": "brand", "contract_version": 1,
+        "report_type": "brand", "contract_version": 4,
         "supplier": str(d.supplier_key.iloc[0]), "supplier_sources": sorted(set(d.supplier)),
         "source_file": str(source.resolve()), "raw_rows": len(d), "selected_rows": len(selected),
         "period_start": selected.audit_observed_utc.min().isoformat(),
@@ -380,6 +436,27 @@ def _analyze_supplier(d: pd.DataFrame, config: BrandConfig, source: Path, as_of)
         "before_price_rows": int(offer_rows.regular_price.notna().sum()),
         "shipping_rows": int(offer_rows.shipping.notna().sum()),
         "retailer_url_rows": int(offer_rows.retailer_url.ne("").sum()),
+        "variant_conflict_offers": int(offer_rows.audit_offer_variant_status.eq("conflict").sum()),
+        "variant_unverified_offers": int((~offer_rows.audit_offer_variant_status.eq("conflict") &
+            (offer_rows.audit_offer_variant_status.eq("unverified") | offer_rows.offer_review_reason.ne(""))).sum()),
+        "products_with_variant_exclusions": int(p.offer_review.ne("").sum()),
+        "source_consistency_counts": offer_rows.audit_source_consistency_status.value_counts().to_dict(),
+        "merchant_price_counts": offer_rows.audit_merchant_price_status.value_counts().to_dict(),
+        "stock_validation_counts": offer_rows.audit_stock_validation_status.value_counts().to_dict(),
+        "source_cache_counts": offer_rows.audit_source_cache_status.value_counts().to_dict(),
+        "source_vat_basis_counts": offer_rows.audit_source_vat_basis.value_counts().to_dict(),
+        "price_evidence_verified_offers": int((offer_rows.audit_source_consistency_status.eq("verified") & offer_rows.audit_merchant_price_status.eq("verified")).sum()),
+        "price_evidence_missing_offers": int((~(offer_rows.audit_source_consistency_status.eq("verified") & offer_rows.audit_merchant_price_status.eq("verified"))).sum()),
+        "price_policy_excluded_offers": int((~offer_rows.audit_price_evidence_eligible).sum()),
+        "independently_verified_stock_offers": int(offer_rows.audit_stock_validation_status.eq("verified").sum()),
+        "source_reported_stock_offers": int(offer_rows.availability.eq(config.in_stock_value).sum()),
+        "stock_basis": "source_reported; independently verified stock is counted separately",
+        "release_status": ("synthetic" if config.price_evidence_mode == "synthetic" else "source_report" if config.price_evidence_mode == "source" else "verified" if len(offer_rows) > 0
+            and offer_rows.audit_source_consistency_status.eq("verified").all()
+            and offer_rows.audit_merchant_price_status.eq("verified").all()
+            and offer_rows.audit_stock_validation_status.eq("verified").all()
+            and offer_rows.audit_offer_variant_status.isin({"compatible", "not_applicable"}).all()
+            else "provisional"),
         "settings": asdict(config),
     }
     return BrandResult(summary, brands, categories, retailers,
@@ -387,13 +464,22 @@ def _analyze_supplier(d: pd.DataFrame, config: BrandConfig, source: Path, as_of)
                        availability, campaigns, audit)
 
 
-def analyze_file(source_path: str | Path, config: BrandConfig | None = None, *, supplier: str | None = None) -> list[BrandResult]:
+def analyze_file(source_path: str | Path, config: BrandConfig | None = None, *, supplier: str | None = None,
+                 evidence_manifest: str | Path | None = None, allow_synthetic: bool = False) -> list[BrandResult]:
     config = config or BrandConfig()
     source = Path(source_path)
-    d = _prepare(read_source(source), config)
+    if config.price_evidence_mode == "synthetic" and allow_synthetic is not True:
+        raise ValueError("Synthetic price evidence requires explicit trusted caller authorization.")
+    evidence = PriceEvidence(evidence_manifest, max_age_hours=config.max_evidence_age_hours,
+                             max_source_cache_age_hours=config.max_source_cache_age_hours)
+    d = _prepare(read_source(source), config, evidence=evidence,
+                 synthetic=config.price_evidence_mode == "synthetic" and allow_synthetic is True)
     as_of = d.audit_observed_utc.max()
     if supplier:
         d = d[d.supplier_key.eq(normalize_domain(supplier))]
         if d.empty:
             raise ValueError(f"Fant ingen data for leverandør: {supplier}")
-    return [_analyze_supplier(group, config, source, as_of) for _, group in d.groupby("supplier_key", sort=True)]
+    results = [_analyze_supplier(group, config, source, as_of) for _, group in d.groupby("supplier_key", sort=True)]
+    for result in results:
+        result.summary["evidence_manifest_sha256"] = evidence.manifest_sha256
+    return results

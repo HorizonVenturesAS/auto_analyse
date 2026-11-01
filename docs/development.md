@@ -15,6 +15,16 @@ Testene bruker bare syntetiske data og midlertidige mapper. De dekker beregninge
 produktidentitet, inputformater, råfilvern, overskriving, konfigurasjon, notater og
 arbeidsbokstruktur. Ingen nettinnsamling inngår.
 
+Brandregresjonene omfatter variantavvik før butikkminimum, konkrete
+pris-/kildekonflikter, originale bevisbindinger og forskjellen mellom `source`
+og `strict`. Manglende butikkbevis skal ikke alene sperre en kildepris i source;
+det skal fortsatt sperre uavhengig prisverifisering i strict. Bruk syntetiske
+identiteter og råsvar i tester, ikke kopier kundeobservasjoner fra `data/`.
+
+Bevisinnsamling og butikkparserne ligger i et separat prosjekt. En vellykket
+test eller push her verifiserer ikke den eksterne innsamlerens installasjon
+eller Git-status. Dokumenter denne grensen i overleveringen når begge endres.
+
 CI kjører på Windows og Ubuntu med Python 3.11 og 3.12. Den kontrollerer også
 delbare filer og Git-historikk. `constraints.txt` låser kjente avhengigheter;
 `pyproject.toml` angir tillatte intervaller. Oppdater låsing bevisst og test igjen.

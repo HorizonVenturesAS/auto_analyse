@@ -1,4 +1,4 @@
-# Brandinnsikt – rapportkontrakt v1
+# Brandinnsikt – rapportkontrakt v4
 
 Denne kontrakten gjelder bare `auto_analyse.brand` og `auto-analyse-brand`.
 Retailmodulen har eget skjema og egen syvfaners kontrakt. Velg modul etter perspektiv.
@@ -62,11 +62,50 @@ utelates. Input må derfor bruke samme produktsnapshot-tidspunkt for tilbud
 som tilhører samme innsamling. Kildehistorikken beholdes i observasjonsfilen.
 Eksakte duplikatrader tas bort fra beregning, men beholdes med audit-flagg.
 
+### Tilbudsvarianter (v2)
+
+En kildegruppering er ikke i seg selv bevis på lik salgsvariant. Den generelle
+kontrollen i `auto_analyse.brand.variants` kjøres per tilbud før laveste
+butikkpris velges. Resultatet er `compatible`, `conflict`, `unverified` eller
+`not_applicable`. Sistnevnte betyr at ingen støttet variantakse ble funnet,
+ikke at varen er uavhengig identitetsverifisert.
+
+Kontrollen bruker modell og tilbudstittel, observerte attributter og valgfrie
+tilbudsspesifikke identifikatorer. `product_attributes` og `offer_attributes`
+kan inneholde JSON med navngitte kildeattributter. `offer_model`, `offer_gtin`
+og `offer_review_reason` er valgfrie. Produktets GTIN må aldri kopieres til
+tilbudets GTIN uten tilbudsspesifikt kildebevis. ID-er og modellkoder beholdes
+som tekst; kompatibilitetsreferanser er ikke varenummer for selve salgsvaren.
+
+Mål sammenlignes på samme akse, med desimalverdien og rollen bevart. En
+diameter er ikke en lengde, og nominell spenning er ikke automatisk lik en
+markedsført maksspenning. Manglende nødvendig variantbevis gir `unverified`.
+Eksplisitte konflikter overstyrer også lik GTIN eller modell. En lik generell
+produktfamilie eller et lignende modellstammenavn godkjenner ikke et annet sett.
+
+`conflict`, `unverified` og `offer_review_reason` utelater det enkelte tilbudet
+fra prisminima, prisgap, butikkposisjon, billigstandel og kampanjer. Andre
+avklarte tilbud på samme produkt og fra samme butikk kan fortsatt brukes.
+Råtilbudet slettes ikke. Sortiment- og lagertall beholder sitt eksisterende
+grunnlag i observerte tilbud, slik kolonnenotatene forklarer.
+
+Observasjonsfilen får `audit_offer_variant_status`,
+`audit_offer_variant_reasons` og `audit_offer_variant_evidence`. Prisgap får
+kolonnen **Tilbudsvariantkontroll**. Produktets eksisterende **Kontrollgrunn**
+gjelder fortsatt flagg som sperrer hele produktet. Manifestet teller separat
+tilbud med konflikt/uavklart variant og produkter med tilbudseksklusjoner.
+Ingen nye faner innføres. Ikke-støttede akser, manglende kildeattributter og
+ukjente produkt-/tilbudsidentiteter må fortsatt dokumenteres og ved behov
+kontrolleres mot produsent-/butikksider; fravær av flagg er ingen fullgaranti.
+
+CLI-argumentet `--name-suffix _v2` gir arbeidsbok og alle sidefiler samme
+suffiks uten å overskrive en tidligere rapport.
+
 ## Prisgrunnlag og kontrollflagg
 
 Et kvalifiserende pristilbud har identifiserbar butikk og tilbuds-ID,
 endelig pris >0, konfigurert valuta, konfigurert lagerstatus, `is_used=false`,
-`is_stale=false` og tom `price_qualifier`. Ugyldig eller ukjent boolsk verdi
+`is_stale=false`, tom `price_qualifier` og ingen tilbudsvis variantutestengelse. Ugyldig eller ukjent boolsk verdi
 kvalifiserer ikke. Laveste kvalifiserende tilbud per produkt/butikk velges;
 tilbuds-ID og kilderad gir stabil rekkefølge ved lik pris.
 
@@ -85,10 +124,11 @@ Referansetiden er seneste gyldige observasjon i hele inputfilen og er den samme
 også ved `--supplier`-filter. Den lagres i manifestet. Det er en relativ
 snapshot-kontroll, ikke en påstand om ferskhet på dagen rapporten kjøres.
 
-Størrelseskontrollen er bevisst begrenset til eksplisitte størrelse-/EU-uttrykk,
-med størrelsesending i produkttittel for sko/støvler/sandaler/hansker. Den gjør
-ikke generell fuzzy matching, enhetskonvertering, fargematching eller
-pakningsnormalisering. Fravær av flagg betyr ikke verifisert identisk vare.
+Den eldre produktvise størrelseskontrollen beholdes for eksplisitte
+størrelse-/EU-uttrykk, med størrelsesending i produkttittel for
+sko/støvler/sandaler/hansker. Tilbudsvariantkontrollen ovenfor supplerer denne
+med støttede modeller og mål-/pakningsakser. Den gjør ikke generell fuzzy
+matching, og konverterer bare enheter på sammenlignbare akser.
 Prisratio 5 er en konfigurerbar kontrollregel, ikke et anbefalt prisgap eller
 et bevis på kildefeil. Kontrollerte kandidatpriser vises i Prisgap, men gapene
 vises som «Ikke beregnbart» og inngår ikke i aggregatene.
@@ -189,6 +229,49 @@ byteidentisk kopi av rådata. Leverandørrapporter inneholder ikke andre
 leverandørers observasjoner.
 
 ## Verifisering
+
+### Kildepris og uavhengig prisbevis (kontrakt v4)
+
+`price_evidence_mode = "source"` er standard for kildebasert prisanalyse.
+Gyldige kildepriser og kildeoppgitt lager brukes med eksisterende variant-,
+ferskhets-, varetilstands- og vilkårskontroller. Manglende direkte butikkbevis
+er en begrensning, ikke en priseksklusjon. Kjente kilde-/butikkpriskonflikter
+eller ugyldige bevis sperrer det berørte tilbudet. Eksplisitt lagerkonflikt
+sperrer tilbudet fra sammenligningen av varer på lager. Manglende bevis er aldri
+det samme som verifisert. `audit_price_basis` skiller `source_observed` fra
+`independently_verified`. Rapporten merkes PRISRADAR-PRISER – DELVIS KONTROLLERT.
+
+`price_evidence_mode = "strict"` er et valgfritt strengere utvalg som også
+krever direkte butikkbekreftelse av pris og lager. `--evidence-manifest` kobler
+tilbudet til lagrede API-, offentlig side- og direkte butikkobservasjoner.
+Motoren verifiserer SHA-256, relative filbaner, originale HTTP-metadata og
+feltbindinger mot råresponsen. Bevis må gjelde eksakt produkt-ID, tilbuds-ID,
+butikk, snapshot, pris, valuta og variant; transporttid og cachealder valideres.
+I strict-modus utelater manglende eller motstridende bevis tilbudet før butikkminimum,
+peer-priser, prisgap og kampanjesammenstillinger. Råprisen beholdes.
+
+Variantkompatibilitet bekrefter ikke pris. Kildesamsvar bekrefter ikke butikkens
+pris eller lager. Revisjonssporet har derfor egne kilde-, butikkpris-, lager-,
+cache-, mva- og prisgrunnlagsstatuser. For uavhengig prisverifisering kan ukjent
+kilde-mva bare få bekreftet prisgrunnlag gjennom et eksakt prismatchet
+butikktilbud med dokumentert mva inkludert; råstatusen for kilde-mva forblir
+ukjent. Source-modus sammenligner kildeprisene uten å oppgradere mva-statusen.
+
+`max_evidence_age_hours` er som standard 48 timer, og
+`max_source_cache_age_hours` er åtte timer. Bevisenes transport-/observasjonstider
+må ligge innen fem minutter av produktsnapshotet; bevisenes alder vurderes mot
+kjøretidspunktet. Dette må ikke forveksles med den relative snapshotkontrollen
+for selve råfilen. Original bevisdato og cachealder fornyes ikke ved eksport.
+
+Analysearket viser publiseringsstatus og antall bekreftede/manglende bevis.
+Prisgap har kolonnen `Prisbevis` etter `Tilbudsvariantkontroll`, med egne
+tellere for kildesamsvar, butikkpris og bekreftet lager per produkt.
+Priskolonnene heter `Laveste pris`, `Medianpris` og `Høyeste pris`; prisgrunnlaget
+forklares i oppsummeringen og notatene. Delvis strict-kontroll merkes PROVISORISK.
+Lager- og sortiment-KPI-er beskriver fortsatt
+kildegrunnlaget og må ikke omtales som uavhengig butikkbekreftet.
+Syntetisk unntak krever eksplisitt `--demo` eller testens `allow_synthetic=True`;
+en konfigurasjonsfil eller et CSV-flagg kan ikke alene åpne prisporten.
 
 Kjør `python -m unittest discover -s tests -v`. Brandtestene dekker prisgap,
 én stemme per butikk, peer-median uten egen butikk, ulike nevnere, delt billigst,

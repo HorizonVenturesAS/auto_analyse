@@ -37,8 +37,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", help="Målmappe. Standard: outputs/brands/<kildefil>-<kildehash>-<konfigurasjonshash>/")
     parser.add_argument("--overwrite", action="store_true", help="Tillat eksplisitt overskriving av tidligere brandrapporter i målgruppen.")
     parser.add_argument("--demo", action="store_true", help="Bruk syntetiske data fra examples/demo/brands.csv.")
+    parser.add_argument("--name-suffix", default="", help="Valgfritt navnesuffiks, for eksempel _v2. Gjelder arbeidsbok og sidefiler.")
+    parser.add_argument("--evidence-manifest", help="SHA-bundet kilde- og butikkbevis per tilbud. Source viser kildepriser med separat kontrollstatus; strict krever butikkbevis.")
     args = parser.parse_args(argv)
     try:
+        if args.name_suffix and not re.fullmatch(r"_[A-Za-z0-9_-]{1,32}", args.name_suffix):
+            raise ValueError("Navnesuffiks må starte med _ og inneholde 1–32 bokstaver, tall, _ eller -.")
         if args.demo and args.input:
             raise ValueError("Velg enten --demo eller en inputfil.")
         source = Path("examples/demo/brands.csv") if args.demo else Path(args.input) if args.input else discover_latest()
@@ -48,7 +52,10 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config(args.config or ("config/demo-brand.toml" if demo else None))
         digest = _digest(source)
         settings_digest = hashlib.sha256(json.dumps(asdict(config), sort_keys=True).encode()).hexdigest()[:8]
-        results = analyze_file(source, config, supplier=args.supplier)
+        if args.demo and args.evidence_manifest:
+            raise ValueError("Syntetisk demo skal ikke bruke ekte prisbevis.")
+        results = analyze_file(source, config, supplier=args.supplier,
+                               evidence_manifest=args.evidence_manifest, allow_synthetic=args.demo)
         if _digest(source) != digest:
             raise ValueError("Råfilen ble endret mens den ble lest. Kjør på et stabilt uttrekk.")
         stem = re.sub(r"[^a-zA-Z0-9_.-]+", "-", source.stem)[:80]
@@ -58,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
             supplier = result.summary["supplier"]
             slug = re.sub(r"[^a-z0-9.-]+", "-", supplier)[:80].strip(".-") or "leverandor"
             tag = hashlib.sha256(supplier.encode()).hexdigest()[:8]
-            report = output_dir / f"brandinnsikt-{slug}-{tag}.xlsx"
+            report = output_dir / f"brandinnsikt-{slug}-{tag}{args.name_suffix}.xlsx"
             paths = {"report": report, "manifest": report.with_suffix(".json"), "header_notes": report.with_suffix(".notes.json"), "observations": report.with_suffix(".observations.jsonl")}
             validate_outputs(source, list(paths.values()), overwrite=args.overwrite)
             planned.append((result, paths))

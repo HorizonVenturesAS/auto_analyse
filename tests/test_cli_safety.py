@@ -18,6 +18,7 @@ from auto_analyse.io_utils import validate_outputs
 from auto_analyse.report import header_note_specs
 from auto_analyse.brand.cli import main as brand_main
 from auto_analyse.brand.analysis import analyze_file as analyze_brand
+from auto_analyse.brand.config import BrandConfig
 
 ROOT = Path(__file__).resolve().parents[1]
 DEMO = ROOT / "examples/demo/retail.csv"
@@ -143,7 +144,7 @@ class CliSafetyTest(unittest.TestCase):
 
     def test_brand_demo_end_to_end_and_independent_expected_metrics(self):
         source = ROOT / "examples/demo/brands.csv"
-        results = analyze_brand(source)
+        results = analyze_brand(source, BrandConfig(price_evidence_mode="synthetic"), allow_synthetic=True)
         self.assertEqual(len(results), 2)
         maker = next(r for r in results if r.summary["supplier"] == "demo-maker.example")
         self.assertEqual(maker.summary["products"], 4)

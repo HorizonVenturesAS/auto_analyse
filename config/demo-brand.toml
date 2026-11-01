@@ -1,4 +1,5 @@
 [brand]
+price_evidence_mode = "synthetic"
 title = "DEMO: syntetisk brandinnsikt"
 
 [brand_aliases]

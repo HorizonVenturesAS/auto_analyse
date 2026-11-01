@@ -1,5 +1,8 @@
 # Gjelder kun auto-analyse-brand / python -m auto_analyse.brand.
 [brand]
+price_evidence_mode = "source" # "strict" krever uavhengig butikkbevis.
+max_evidence_age_hours = 48.0
+max_source_cache_age_hours = 8.0
 currency = "NOK"
 in_stock_value = "in_stock"
 extreme_price_ratio = 5.0

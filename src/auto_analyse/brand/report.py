@@ -49,15 +49,17 @@ COLUMNS = {
     "offer_stores": ("Butikker med tilbud", "Ulike observerte butikker med identifiserbare tilbud for produktet, uavhengig av lagerstatus.", "count", 23),
     "stock_stores": ("Butikker på lager", "Ulike butikker med minst ett tilbud merket på lager. På butikkspesifikke lagerrader teller dette øvrige butikker.", "count", 21),
     "price_stores": ("Butikker med gyldig pris", "Butikker med positive, endelige priser i rapportvaluta for nye, ferske, ubetingede tilbud på lager. Laveste tilbud per butikk beholdes før produktets kontrollflagg vurderes.", "count", 25),
-    "min_price": ("Laveste pris", "Laveste kvalifiserende butikkpris uten frakt. På kontrollrader er dette en kandidatpris som ikke inngår i pris-KPI-ene.", "money", 18),
-    "median_price": ("Medianpris", "Median av laveste kvalifiserende pris per butikk, uten frakt. På kontrollrader vises kun kandidatpriser.", "money", 18),
-    "max_price": ("Høyeste pris", "Høyeste av butikkenes laveste kvalifiserende priser, uten frakt. På kontrollrader vises kun kandidatpriser.", "money", 18),
+    "min_price": ("Laveste pris", "Laveste kvalifiserende kildepris uten frakt. I source-modus brukes Prisradars pris og lager med variantkontroll og sperring av kjente beviskonflikter; direkte butikkbekreftelse er en separat status. I strict-modus kreves direkte butikkbevis. På kontrollrader vises kandidatpriser utenfor KPI-ene.", "money", 21),
+    "median_price": ("Medianpris", "Median av laveste kvalifiserende pris per butikk, uten frakt. Prisgrunnlaget følger rapportens modus. På kontrollrader vises kandidatpriser utenfor KPI-ene.", "money", 21),
+    "max_price": ("Høyeste pris", "Høyeste av butikkenes laveste kvalifiserende kildepriser, uten frakt. Prisgrunnlaget følger rapportens modus. Avviste varianter og kjente beviskonflikter inngår ikke. På kontrollrader vises kandidatpriser utenfor KPI-ene.", "money", 21),
     "gap_nok": ("Prisgap (valuta)", "Høyeste minus laveste butikkpris, bare for prissammenlignbare produkter. Valuta fremgår av tallformat og oppsummering.", "money", 21),
     "gap_pct": ("Prisgap (%)", "Høyeste butikkpris/laveste butikkpris minus 1. Tomt grunnlag eller kontrollflagg gir Ikke beregnbart, aldri null.", "pct", 17),
     "cheapest": ("Laveste hos", "Alle butikker med nøyaktig laveste kandidatpris. Listen er ikke en anbefaling eller dokumentasjon på autorisert forhandlerstatus.", "text", 42),
     "expensive": ("Høyeste hos", "Alle butikker med nøyaktig høyeste kandidatpris.", "text", 38),
     "status": ("Analysestatus", "Sammenlignbart, Ikke beregnbart eller Til kontroll. Bare Sammenlignbart inngår i prisgap-KPI-ene.", "text", 22),
     "review": ("Kontrollgrunn", "Konkrete flagg som holder produktets priser utenfor hoved-KPI-ene. Tomt betyr at automatiske kontroller ikke fant avvik; det er ingen garanti for riktig matching.", "text", 62),
+    "offer_review": ("Tilbudsvariantkontroll", "Antall tilbud med feil eller uavklart variant. Disse tilbudene utelates fra pris, kampanjer og butikkposisjon før laveste pris per butikk velges. Andre avklarte tilbud kan brukes. Lager- og sortimentstall viser fortsatt observerte kilderader. Eksakte årsaker og evidens finnes per tilbud i observasjonsfilen.", "text", 48),
+    "price_evidence": ("Prisbevis", "Bekreftede tilbud / observerte tilbud for kildesamsvar, direkte butikkpris og lager, vurdert separat. Manglende butikkbevis sperrer ikke en kildepris i source-modus. Konkrete beviskonflikter og feil/uavklarte salgsvarianter sperres. Strict-modus krever direkte butikkbevis. Detaljer finnes per tilbud i observasjonsfilen.", "text", 65),
     "observed_at": ("Observert (UTC)", "Tidspunkt for valgt snapshot av dette produktet. Siste tidspunkt per leverandør, brand og produkt-ID brukes; tilbud fra eldre snapshots blandes ikke inn.", "text", 29),
     "prisradar_url": ("Prisradar-URL", "Sporbar produktlenke fra kilden.", "url", 48),
     "issue": ("Tilgjengelighetsfunn", "Produktnivå: ingen tilbud, ingen lagerførende butikk eller kun én. Butikknivå: butikken mangler lager mens andre har varen. Flere rader kan gjelde samme produkt.", "text", 44),
@@ -75,7 +77,7 @@ SHEETS = {
     "Brands": ("brands", ["brand"] + GROUP),
     "Kategorier": ("categories", ["brand", "category"] + GROUP),
     "Nettbutikker": ("retailers", ["brand", "retailer", "products", "coverage", "stock_rate", "price_products", "leader_share", "peer_products", "peer_gap", "campaigns", "stock_gaps"]),
-    "Prisgap": ("products", IDENTITY + ["offer_stores", "stock_stores", "price_stores", "min_price", "median_price", "max_price", "gap_nok", "gap_pct", "cheapest", "expensive", "status", "review", "observed_at", "prisradar_url"]),
+    "Prisgap": ("products", IDENTITY + ["offer_stores", "stock_stores", "price_stores", "min_price", "median_price", "max_price", "gap_nok", "gap_pct", "cheapest", "expensive", "status", "review", "offer_review", "price_evidence", "observed_at", "prisradar_url"]),
     "Tilgjengelighet": ("availability", IDENTITY + ["issue", "retailer", "availability", "stock_stores", "review", "observed_at", "prisradar_url"]),
     "Kampanjer": ("campaigns", IDENTITY + ["retailer", "offer_id", "offer_title", "price", "regular_price", "discount", "availability", "review", "observed_at", "prisradar_url", "retailer_url"]),
 }
@@ -123,7 +125,7 @@ def _table(wb, name, frame, keys, config, number):
             cell = _put(ws, row, col, value, kind=COLUMNS[key][2], config=config)
             if key in {"product_id", "gtin", "offer_id", "size"}:
                 cell.number_format = "@"
-            if key in {"title", "category", "offer_title", "review", "cheapest", "expensive", "issue"}:
+            if key in {"title", "category", "offer_title", "review", "offer_review", "price_evidence", "cheapest", "expensive", "issue"}:
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
                 lines = max(lines, math.ceil(len(str(value or "")) / (COLUMNS[key][3] * .85)))
             if key in {"review", "status"} and value and value != "Sammenlignbart":
@@ -169,7 +171,8 @@ def _dashboard(wb, result, config):
     for row in range(1, 64):
         ws.row_dimensions[row].height = 22
     _block(ws, "A1", "L2", config.title, INK, size=19, bold=True)
-    _block(ws, "A3", "L3", f"{s['supplier']}  |  {s['brands']} brands  |  {s['period_start'][:10]} – {s['period_end'][:10]} UTC  |  {config.currency}, uten frakt", LIGHT)
+    release = {"verified": "DOKUMENTERT", "synthetic": "DEMO", "provisional": "PROVISORISK", "source_report": "PRISRADAR-PRISER – DELVIS KONTROLLERT"}.get(s.get("release_status"), "UAVKLART")
+    _block(ws, "A3", "L3", f"{s['supplier']}  |  {s['brands']} brands  |  {s['period_start'][:10]} – {s['period_end'][:10]} UTC  |  {config.currency}, uten frakt  |  {release}", LIGHT)
     for n, key in enumerate(KPI_KEYS):
         col, row = (n % 4) * 3 + 1, 5 + (n // 4) * 4
         start, end = get_column_letter(col), get_column_letter(col + 2)
@@ -182,15 +185,22 @@ def _dashboard(wb, result, config):
         cell.number_format = "0.0%" if kind == "pct" else "#,##0"
     _block(ws, "A14", "L14", "Hva viser uttrekket?", BLUE, bold=True)
     count, review_count = f"{s['comparable']:,}".replace(",", " "), f"{s['review_products']:,}".replace(",", " ")
-    _block(ws, "A15", "L16", f"{count} produkter kan prissammenlignes etter automatiske kontroller. {review_count} produkter er merket for kontroll. Prisgap, butikkposisjon og andel billigst utelater kontrollproduktene.", LIGHT)
-    top = result.brands.sort_values(["comparable", "brand"], ascending=[False, True]).head(3)
-    top_text = "; ".join(f"{r.brand}: {r.comparable} sammenlignbare av {r.products}" for r in top.itertuples())
-    _block(ws, "A17", "L18", "Størst sammenligningsgrunnlag: " + top_text + ". Brandene kan ha svært ulik dekning.")
+    _block(ws, "A15", "L16", f"{count} produkter kan prissammenlignes. {review_count} produkter har flagg som sperrer hele produktet. "
+           f"{s['products_with_variant_exclusions']} produkter har feil/uavklarte tilbud som er utelatt enkeltvis. Se Tilbudsvariantkontroll i Prisgap og årsaker per tilbud i observasjonsfilen.", LIGHT)
+    verified = s.get("price_evidence_verified_offers", 0)
+    missing = s.get("price_evidence_missing_offers", s['offers'])
+    evidence_text = ("DEMO: Prisene er syntetiske og brukes til å demonstrere beregningene; de er ikke kildeverifiserte markedspriser."
+        if s.get("release_status") == "synthetic" else
+        f"Prisgrunnlag: observerte Prisradar-priser. {sum(s.get('source_consistency_counts', {}).get(k, 0) for k in ('verified',))} tilbud er kontrollert mot offentlig side; {verified} har også direkte butikkbekreftet pris. Manglende butikkbekreftelse vises som kontrollstatus. Konkrete konflikter sperres."
+        if s.get("release_status") == "source_report" else
+        f"Prisbevis: {verified} tilbud har dokumentert kildesamsvar og butikkpris; {missing} mangler godkjent prisbevis. Modell-/variantsamsvar bekrefter ikke alene pris. Provisorisk rapport betyr at deler av kildegrunnlaget er uavklart.")
+    _block(ws, "A17", "L18", evidence_text)
     _block(ws, "A19", "L20", f"{s['single_stock']} produkter er registrert på lager hos bare én butikk; {s['no_stock']} har ingen observerte tilbud på lager. Se Tilgjengelighet for produkt- og butikkspesifikke funn.", LIGHT)
     _block(ws, "A22", "L22", "Prioritert oppfølging", BLUE, bold=True)
     _block(ws, "A23", "L25", "1. Kontroller flaggede produktvarianter, GTIN-er og ekstreme priser i Prisgap.\n2. Undersøk de største beregnede prisgapene og butikkposisjonen innen hvert brand.\n3. Følg opp produkter uten lager og produkter med bare én observert lagerførende butikk.", GOLD)
     _block(ws, "A27", "L27", "Slik er sammenligningene avgrenset", BLUE, bold=True)
-    _block(ws, "A28", "L30", f"Laveste kvalifiserende tilbud per produkt og butikk teller én gang. Prisgap er høyeste/laveste pris minus 1. Butikkposisjon krever minst {config.min_peer_stores} øvrige butikker. Prisratio over {config.extreme_price_ratio:g} utløser kontroll, ikke en konklusjon om feil. Lagerandel følger kildens status, også for produkter til kontroll.")
+    basis = "Pris og lager er observert hos Prisradar; direkte butikkbekreftelse er supplerende kontroll." if config.price_evidence_mode == "source" else "Pris og lager krever separat godkjent bevis."
+    _block(ws, "A28", "L30", f"{basis} Feil/uavklart salgsvariant og kjente kilde-/priskonflikter utelates. Prisgap er høyeste/laveste pris minus 1. Butikkposisjon krever minst {config.min_peer_stores} øvrige butikker. Prisratio over {config.extreme_price_ratio:g} utløser kontroll.")
     _block(ws, "A32", "L34", "Rapporten beskriver observerte oppføringer på Prisradar, ikke komplett sortiment, markedsandel, salg eller margin. Produkter kan være størrelsesvarianter. Automatiske kontroller bekrefter ikke at alle tilbud gjelder identisk vare/pakning. Leverandørtilknytningen kommer fra uttrekket og dokumenterer ikke brandeierskap.", LIGHT)
     _block(ws, "A36", "L38", f"Førpris finnes på {s['before_price_rows']} av {s['offers']} tilbudsrader; manglende førpris betyr ukjent kampanjestatus. Førpris er ikke historisk prisbevis. Frakt finnes på {s['shipping_rows']} tilbudsrader og er utelatt fra prisanalysen. Direkte butikklenke finnes på {s['retailer_url_rows']} tilbudsrader.")
     _block(ws, "A40", "L42", "Siste snapshot velges separat per produkt; tidspunkter vises i detaljlistene. Dette er ingen trendanalyse. Produkter uten prisgrunnlag vises som Ikke beregnbart. Hele observasjonsgrunnlaget og årsaker til priseksklusjon følger i rapportens .observations.jsonl-fil.", LIGHT)

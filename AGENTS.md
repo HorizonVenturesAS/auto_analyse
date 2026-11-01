@@ -46,6 +46,31 @@ andre prosjekter eller en bestemt brukerkatalog finnes på denne maskinen.
 - Bare generatorens syntetiske CSV-filer skal versjoneres som eksempler.
   Ikke bruk `git add -f` på datafiler. Ikke commit/push eller omskriv historikk uten bestilling.
 
+## Brand: prisgrunnlag, identitet og nye analyser
+
+- Standard er `price_evidence_mode = "source"`: sammenlign observerte kildepriser
+  og kildeoppgitt lager. Manglende direkte butikkbekreftelse er en separat
+  kontrollstatus, ikke alene en grunn til å tømme prisanalysen.
+- Velg `strict` bare når oppdraget krever uavhengig butikkbekreftelse av pris og
+  lager. Forklar konsekvensen for sammenligningsgrunnlaget. `synthetic` er kun
+  for eksplisitt demo/test, aldri en snarvei for ekte data.
+- Behold tilbudsvis variantkontroll og kjente beviskonflikter i begge moduser.
+  Feil eller uavklart salgsvariant, manuelle kontrollflagg og ugyldige bevis
+  skal ikke omgås for å få flere priser. Lik GTIN overstyrer ikke et konkret avvik.
+- Bruk `--evidence-manifest` når kilde-/butikkbevis finnes. Bevar originalbytes,
+  ID-er, hash og observasjonstider; rapportgenerering fornyer ikke bevisene.
+  Skill kildesamsvar, butikkpris, variant og lager i leveransen.
+- For nye brands eller butikker: avklar oppdragets merke-/leverandørkontekst,
+  aliaser og kategoriomfang på nytt. Gamle produsent-ID-er, butikkadaptere og
+  kundekonfigurasjoner er ikke automatisk godkjenning for et nytt oppdrag.
+  Legg analysespesifikke avvisninger og bevis under ignorerte `data/`.
+- Ved ny innhenting: kontroller kjente risikotilfeller og et reproduserbart
+  tilfeldig pilotutvalg før utvidelse. Kontroller faktisk adapter-/parserstøtte;
+  ikke gjett manglende butikkidentitet eller kopier produkt-GTIN til tilbuds-GTIN.
+- Les [brandkontrakten](docs/brand-report-contract.md) for statuser og nevnere.
+  «Ikke beregnbart» brukes ved manglende kvalifiserende grunnlag, ikke som en
+  generell erstatning for kildepriser uten direkte butikkbevis.
+
 ## Verifisering og kontrakt
 
 - Etter endring i kode, konfigurasjon, layout eller demoer:

@@ -15,6 +15,9 @@ class BrandConfig:
     price_leader_tolerance: float = 0.01
     min_peer_stores: int = 2
     max_snapshot_age_hours: float = 48.0
+    price_evidence_mode: str = "source"
+    max_evidence_age_hours: float = 48.0
+    max_source_cache_age_hours: float = 8.0
     title: str = "Brandinnsikt – pris og tilgjengelighet hos nettbutikkene"
     brand_aliases: dict[str, str] = field(default_factory=lambda: {
         "JRG": "Jrg Sanipex", "Structon": "Structron",
@@ -22,12 +25,14 @@ class BrandConfig:
     })
 
     def __post_init__(self):
-        for name in ("extreme_price_ratio", "price_leader_tolerance", "max_snapshot_age_hours"):
+        for name in ("extreme_price_ratio", "price_leader_tolerance", "max_snapshot_age_hours", "max_evidence_age_hours", "max_source_cache_age_hours"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 raise ValueError(f"{name} må være et endelig tall.")
         if self.extreme_price_ratio <= 1 or self.max_snapshot_age_hours <= 0:
             raise ValueError("Prisratio må være >1 og snapshot-alder >0.")
+        if self.price_evidence_mode not in {"source", "strict", "synthetic"} or self.max_evidence_age_hours <= 0 or self.max_source_cache_age_hours <= 0:
+            raise ValueError("price_evidence_mode må være source/strict/synthetic og evidence-alder >0.")
         if not 0 <= self.price_leader_tolerance < 1:
             raise ValueError("price_leader_tolerance må være mellom 0 og 1.")
         if type(self.min_peer_stores) is not int or self.min_peer_stores < 2:

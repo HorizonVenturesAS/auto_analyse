@@ -85,6 +85,42 @@ Tilbud fra samme produktsnapshot skal ha samme observasjonstid. Seneste snapshot
 velges per produkt. Ukjente brukt-/ferskhetsflagg skal ikke gjettes til false.
 Manglende frakt er ukjent, ikke null. Leverandørtilknytning er ikke bevis for eierskap.
 
+For tilbudsvis variantkontroll støttes også `model`, `offer_model`, `offer_gtin`,
+`product_attributes`, `offer_attributes` og `offer_review_reason`. Attributtfeltene
+kan være JSON-lister med `name`, `value`/`raw_value` og eventuell kildeevidens.
+Tilbudsidentifikatorer må komme fra akkurat dette tilbudet; produktets GTIN er
+ikke dokumentasjon på butikktilbudets GTIN. Fremtidige brandeksporter fra
+innsamleren bevarer disse feltene når de faktisk er observert.
+
+Navngitte variantakser kan også leveres som `product_`-/`offer_`-felt:
+`diameter_mm`, `inner_diameter_mm`, `outer_diameter_mm`, `length_mm`, `width_mm`,
+`pack_count`, `grit`, `drive_profile`, `voltage_v`, `battery_capacity_ah`,
+`battery_count`, `battery_included` og `charger_included`. Bruk bare sammenlignbare
+aksedefinisjoner; ukjent total-/arbeids-/emballasjelengde skal ikke fylles inn som
+en bekreftet lengde. Se [brandkontrakten](brand-report-contract.md) for avgrensninger,
+tilbudsstatuser og hvordan uavklarte tilbud holdes utenfor prisberegningene.
+
+### Prisbevis og analysemodus
+
+Standardmodusen `source` sammenligner kildepriser med variant- og konfliktkontroll.
+Et separat bevismanifest dokumenterer ytterligere kilde-/butikkontroll;
+`strict` krever slike bevis for prisnøkkeltall. CSV-felt som hevder «verified» erstatter ikke dokumentasjon.
+`--evidence-manifest` peker på JSON med `version: 1` og `offers`, der hver post
+har `supplier`, `product_id`, `offer_id`, `snapshot_at` og referansene
+`source_api`, `source_public`, `merchant` (hver med relativ `path` og `sha256`).
+Bevisfilene binder feltene til originale HTTP-responser og tidsstempler.
+Se [innsamlingsveiledningen](collection.md) og
+[brandkontrakten](brand-report-contract.md) for kontrollkravene. Manglende bevis
+bevarer råobservasjonen og gir separat kontrollstatus. Bare strict-modus
+utelater prisen alene fordi direkte butikkbekreftelse mangler.
+
+Rapportens `.observations.jsonl` legger til reserverte `audit_`-felt. Disse skal
+ikke leveres som innkolonner. `audit_price_basis` har `source_observed`,
+`independently_verified` eller `synthetic`; det er ikke alene et kvalifiseringsflagg.
+Se også `audit_price_eligible`, `audit_price_exclusion`,
+`audit_offer_variant_status`, `audit_source_consistency_status`,
+`audit_merchant_price_status` og `audit_stock_validation_status`.
+
 ### Branddemoen
 
 [brands.csv](../examples/demo/brands.csv) har 11 rader, 6 produkter og 2 leverandører:
