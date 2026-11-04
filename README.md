@@ -30,6 +30,15 @@ manglende butikkbevis vises som kontrollstatus og sperrer ikke alene kildeprisen
 Modusen `strict` krever uavhengig butikkbekreftelse. Se
 [innsamlingsveiledningen](docs/collection.md) for fremgangsmåten.
 
+## Kontrollrunde før levering
+
+Nye brands og retailere følger avgrensning/pilot → innhenting → automatisk
+kontroll → målrettet verifisering → rapport. Kontrollrunden undersøker også
+for strenge avvisninger, og skiller avklarte sammenligninger fra indikative priser.
+Kjør `python -m auto_analyse.verification --help` for den lokale kontrollkøen.
+Les [arbeidsflyten](docs/verification-workflow.md) for agentfordeling, avgrensning
+og sluttkontroll. Den lokale CLI-en gjør ingen nettkall eller modellkall.
+
 ## Start i Codex eller Claude
 
 1. Klon eller last ned prosjektet og åpne **prosjektmappen** i en lokal kodeøkt.

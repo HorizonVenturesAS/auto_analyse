@@ -26,13 +26,25 @@ Denne skillen ligger i repoet og kan leses direkte av Codex eller Claude Code.
    Bruk eksplisitt konfigurasjon for andre butikker.
 5. Velg ny output eller bruk `--overwrite` når erstatning er ønsket.
    CLI-en beskytter både råfil og eksisterende rapport/sidefiler.
-6. Kontroller JSON-manifest, de åtte KPI-kortene, fanerekkefølge og alle 68
+6. Før kundelevering fra nytt butikkgrunnlag: følg
+   [verifiseringsflyten](../../../docs/verification-workflow.md). Lag en lokal
+   kontrollkø med `python -m auto_analyse.verification <input> --mode retail
+   --config <toml> --output outputs/<analyse>/review-plan.json`. Kontroller hele
+   målbutikkens utvalg, også varer uten prisvarsel, og fordel avgrensede risikosaker
+   og tilfeldig bredde på subagenter, fortrinnsvis Luna Extra High når tilgjengelig.
+   Bekreft målbutikk-SKU mot konkurrentens konkrete variant; GTIN/felles produkt-ID
+   alene overstyrer ikke modell-, paknings- eller størrelsesavvik. Bevar gamle
+   prisdatoer ved ny identitetskontroll. Dokumenter beslutninger separat, rett
+   både feiltreff og for strenge avvisninger, og kjør rapporten på nytt.
+   Uavklarte treff inngår ikke i kvalifisert indeks, rangering eller prisvarsler.
+   Ved rene presentasjonsendringer gjenbrukes tidligere dokumenterte kontroller.
+7. Kontroller JSON-manifest, de åtte KPI-kortene, fanerekkefølge og alle 68
    kolonne-/tabellnotater mot `.notes.json`. Notatene skal samsvare med synlige
    overskrifter, konfigurert butikknavn og terskler.
-7. Ved kode-, konfigurasjons-, layout- eller demoendringer: kjør
+8. Ved kode-, konfigurasjons-, layout- eller demoendringer: kjør
    `python -m unittest discover -s tests -v` og demoenes `--check`.
    Ved vanlig rapportoppdatering holder kontroll av genererte artefakter.
-8. Lever lenke til Excel, inputperiode og KPI-er. Beskriv databegrensninger.
+9. Lever lenke til Excel, inputperiode og KPI-er. Beskriv databegrensninger.
    Ikke beregn salgseffekt eller margin fra eksterne prisobservasjoner alene.
 
 ## Rapportkontrakt og deling

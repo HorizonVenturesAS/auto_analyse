@@ -71,6 +71,27 @@ andre prosjekter eller en bestemt brukerkatalog finnes på denne maskinen.
   «Ikke beregnbart» brukes ved manglende kvalifiserende grunnlag, ikke som en
   generell erstatning for kildepriser uten direkte butikkbevis.
 
+## Fast kontrollrunde etter innhenting
+
+- Standardflyt for nye brands og retailere: avgrensning/pilot, innhenting,
+  automatisk kontroll, målrettet verifisering og rapport/sluttkontroll.
+  Følg [verifiseringsflyten](docs/verification-workflow.md).
+- Kjør `python -m auto_analyse.verification` på råfilen for en intern kontrollkø
+  med full lokal screening, risikotilfeller og reproduserbart tilfeldig utvalg.
+  Køen er ikke verifisering eller tilbudsgodkjenning. Bruk repoets
+  [brandskill](.agents/skills/brand-competitor-report/SKILL.md) for brandmodus.
+- Fordel avgrensede produkt-/tilbudsutvalg på subagenter ved nye brands/butikker
+  og vesentlige avvik, fortrinnsvis Luna Extra High når tilgjengelig. Avstem
+  eksakte ID-er, kilder og faktisk kontrollomfang før beslutninger tas inn.
+  Oppdateringer prioriterer nye produkter, endrede koblinger og avvik; ren
+  rapportformatering trenger ikke ny nettinnhenting eller full agentgjennomgang.
+- Kontroller både reelle konflikter og for strenge avvisninger. Bevar rådata,
+  priser og observasjonstider; nåværende identitetssider fornyer ikke gamle priser.
+  Retail beholder målbutikkens produktkobling og egne kvalifiseringskrav.
+- Oppgi flere avklarte sammenligninger separat fra flere viste, uavklarte priser.
+  En indikativ visning er aldri automatisk fallback; den krever uttrykkelig
+  bestilling og faktisk modusspesifikk støtte. Kjente konflikter sperres fortsatt.
+
 ## Verifisering og kontrakt
 
 - Etter endring i kode, konfigurasjon, layout eller demoer:

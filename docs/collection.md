@@ -1,5 +1,10 @@
 # Fra Prisradar til rapport
 
+Etter innhenting følger prosjektets faste [kontroll- og verifiseringsrunde](verification-workflow.md)
+før kunderapporten bygges. Kjør lokal screening av hele grunnlaget og målrettet
+agentkontroll av risikotilfeller og et tilfeldig utvalg. En ferdig innhentingskø
+eller en kontrollplan er ikke i seg selv dokumentasjon på riktige salgsvarianter.
+
 Auto Analyse er rapportdelen. Produktoppdagelse og nettinnsamling utføres i det
 separate prosjektet `prisjakt-catalogue`, med Prisradar.no som datakilde.
 Navnet «prisjakt» i mappen endrer ikke datakilden.
